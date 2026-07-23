@@ -25,7 +25,7 @@ const channelProtocolOptions: ChannelProtocolOption[] = [
     { label: "Gemini 原生", value: "gemini" },
     { label: "文本", options: [{ label: "Chat Completions", value: "chat-completion" }, { label: "OpenAI Responses", value: "openai-response" }] },
     { label: "图片", options: [{ label: "OpenAI Images", value: "openai-image" }] },
-    { label: "视频", options: [{ label: "NewAPI 视频", value: "newapi" }, { label: "NewAPI 渠道 1", value: "newapi-channel-1" }, { label: "NewAPI 渠道 2", value: "newapi-channel-2" }] },
+    { label: "视频", options: [{ label: "NewAPI 视频", value: "newapi" }, { label: "NewAPI 渠道 1", value: "newapi-channel-1" }, { label: "NewAPI 渠道 2", value: "newapi-channel-2" }, { label: "xAI / Sub2API 视频", value: "xai-video" }] },
 ];
 
 const flatChannelProtocolOptions = channelProtocolOptions.flatMap((group) => ("options" in group ? group.options : [group]));
@@ -159,7 +159,7 @@ export default function ChannelsPage() {
             dataIndex: "apiFormat",
             width: 160,
             render: (_value: string, channel: ModelChannel) => (
-                <Tag bordered={false} color={channel.apiFormat === "gemini" ? "gold" : channel.interfaceType === "newapi-channel-1" ? "green" : channel.interfaceType === "newapi" ? "orange" : channel.interfaceType === "newapi-channel-2" ? "purple" : "blue"}>
+                <Tag bordered={false} color={channel.apiFormat === "gemini" ? "gold" : channel.interfaceType === "newapi-channel-1" ? "green" : channel.interfaceType === "newapi" ? "orange" : channel.interfaceType === "newapi-channel-2" ? "purple" : channel.interfaceType === "xai-video" ? "cyan" : "blue"}>
                     {channelProtocolLabel(channel)}
                 </Tag>
             ),
@@ -209,7 +209,7 @@ function positiveInt(value: string | null, fallback: number) { const parsed = Nu
 function normalizePageSize(value: string | null) { const parsed = positiveInt(value, 20); return [20, 50, 100].includes(parsed) ? parsed : 20; }
 function normalizeStatus(value: string | null): "all" | "enabled" | "disabled" { return value === "enabled" || value === "disabled" ? value : "all"; }
 function normalizeInterface(value: string | null): "all" | AdminChannelProtocol {
-    return ["auto", "gemini", "chat-completion", "openai-response", "openai-image", "newapi", "newapi-channel-1", "newapi-channel-2"].includes(value || "") ? value as AdminChannelProtocol : "all";
+    return ["auto", "gemini", "chat-completion", "openai-response", "openai-image", "newapi", "newapi-channel-1", "newapi-channel-2", "xai-video"].includes(value || "") ? value as AdminChannelProtocol : "all";
 }
 
 // 协议层与具体接口类型分开保存，空 interfaceType 是自动兼容或 Gemini 原生的有效状态。
@@ -244,5 +244,6 @@ function channelProtocolLabel(channel: ModelChannel) {
         newapi: "NewAPI 视频",
         "newapi-channel-1": "NewAPI 渠道 1",
         "newapi-channel-2": "NewAPI 渠道 2",
+        "xai-video": "xAI / Sub2API 视频",
     } as Record<string, string>)[channel.interfaceType] || "未设置";
 }

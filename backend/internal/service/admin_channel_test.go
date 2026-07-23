@@ -31,16 +31,58 @@ func TestChannelFromRequestStoresInterfaceType(t *testing.T) {
 	}
 }
 
+func TestChannelFromRequestStoresXAIVideoInterfaceType(t *testing.T) {
+	t.Setenv("CANVAS_ALLOW_PRIVATE_UPSTREAMS", "true")
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer server.Close()
+
+	channel, err := channelFromRequest(ChannelRequest{
+		Name:          "xAI Video",
+		BaseURL:       server.URL + "/v1",
+		APIKey:        "secret",
+		InterfaceType: "xai-video",
+		Models:        []string{"grok-imagine-video-1.5"},
+	}, model.ModelChannel{})
+	if err != nil {
+		t.Fatalf("channelFromRequest() error = %v", err)
+	}
+	if channel.InterfaceType != model.ChannelInterfaceXAIVideo {
+		t.Fatalf("InterfaceType = %q", channel.InterfaceType)
+	}
+}
+
 func TestMergeChannelRequestSupportsEnabledOnlyPatch(t *testing.T) {
 	enabled := false
 	req := mergeChannelRequest(ChannelRequest{Enabled: &enabled}, model.ModelChannel{
-		Name:       "Video",
-		BaseURL:    "https://example.com/v1",
-		APIFormat:  "openai",
-		ModelsJSON: `["custom-video"]`,
+		Name:          "Video",
+		BaseURL:       "https://example.com/v1",
+		APIFormat:     "openai",
+		InterfaceType: model.ChannelInterfaceNewAPIVideo,
+		ModelsJSON:    `["custom-video"]`,
 	})
 	if req.Name != "Video" || req.BaseURL != "https://example.com/v1" || req.InterfaceType != "newapi" || len(req.Models) != 1 {
 		t.Fatalf("mergeChannelRequest() = %#v", req)
+	}
+}
+
+func TestChannelFromRequestSupportsProtocolWithoutInterfaceType(t *testing.T) {
+	t.Setenv("CANVAS_ALLOW_PRIVATE_UPSTREAMS", "true")
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer server.Close()
+
+	for _, apiFormat := range []string{"openai", "gemini"} {
+		channel, err := channelFromRequest(ChannelRequest{
+			Name:      apiFormat,
+			BaseURL:   server.URL,
+			APIKey:    "secret",
+			APIFormat: apiFormat,
+		}, model.ModelChannel{})
+		if err != nil {
+			t.Fatalf("channelFromRequest(%q) error = %v", apiFormat, err)
+		}
+		if channel.APIFormat != apiFormat || channel.InterfaceType != "" {
+			t.Fatalf("channelFromRequest(%q) = APIFormat %q, InterfaceType %q", apiFormat, channel.APIFormat, channel.InterfaceType)
+		}
 	}
 }
 

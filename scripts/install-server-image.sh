@@ -2,12 +2,12 @@
 
 set -Eeuo pipefail
 
-REPOSITORY_URL="${REPOSITORY_URL:-https://github.com/ddcat-ai/open-ai-canvas.git}"
 REPOSITORY_REF="${REPOSITORY_REF:-main}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/open-ai-canvas}"
 CANVAS_HTTP_PORT="${CANVAS_HTTP_PORT:-3000}"
 CANVAS_IMAGE_TAG="${CANVAS_IMAGE_TAG:-latest}"
 COMPOSE_FILE="docker-compose.deploy.yml"
+COMPOSE_URL="${COMPOSE_URL:-https://raw.githubusercontent.com/ddcat-ai/open-ai-canvas/${REPOSITORY_REF}/${COMPOSE_FILE}}"
 
 step() {
     printf '\n==> %s\n' "$1"
@@ -29,7 +29,7 @@ require_root() {
 }
 
 install_packages() {
-    local packages=(ca-certificates curl git openssl)
+    local packages=(ca-certificates curl openssl)
 
     if command -v apt-get >/dev/null 2>&1; then
         apt-get update
@@ -39,7 +39,7 @@ install_packages() {
     elif command -v yum >/dev/null 2>&1; then
         yum install -y "${packages[@]}"
     else
-        fail "暂不支持当前 Linux 发行版，请先手动安装 Docker、Git、curl 和 OpenSSL"
+        fail "暂不支持当前 Linux 发行版，请先手动安装 Docker、curl 和 OpenSSL"
     fi
 }
 
@@ -64,27 +64,23 @@ install_docker() {
     docker compose version >/dev/null 2>&1 || fail "Docker Compose 安装失败"
 }
 
-sync_source() {
-    step "下载无限画布源码"
-    if [[ -d "$INSTALL_DIR/.git" ]]; then
-        cd "$INSTALL_DIR"
-        [[ -z "$(git status --porcelain --untracked-files=no)" ]] || fail "$INSTALL_DIR 存在本地代码改动，请先处理后再更新"
-        git pull --ff-only origin "$REPOSITORY_REF"
-        return
+login_ghcr() {
+    if [[ -n "${GHCR_USERNAME:-}" || -n "${GHCR_TOKEN:-}" ]]; then
+        [[ -n "${GHCR_USERNAME:-}" && -n "${GHCR_TOKEN:-}" ]] || fail "GHCR_USERNAME 和 GHCR_TOKEN 必须同时配置"
+        step "登录 GitHub Container Registry"
+        # token 只通过 stdin 交给 Docker，避免出现在命令参数和进程列表中。
+        printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USERNAME" --password-stdin
     fi
-
-    if [[ -e "$INSTALL_DIR" && -n "$(find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
-        fail "$INSTALL_DIR 已存在且不是本脚本安装的仓库，为避免覆盖文件已停止"
-    fi
-    mkdir -p "$(dirname "$INSTALL_DIR")"
-    git clone --depth 1 --branch "$REPOSITORY_REF" "$REPOSITORY_URL" "$INSTALL_DIR"
-    cd "$INSTALL_DIR"
 }
 
 prepare_environment() {
+    mkdir -p "$INSTALL_DIR"
+    cd "$INSTALL_DIR"
+
     if [[ -f .env ]]; then
         grep -Eq '^POSTGRES_PASSWORD=.+$' .env || fail "现有 .env 缺少 POSTGRES_PASSWORD"
         grep -Eq '^DATABASE_URL=.+$' .env || fail "现有 .env 缺少 DATABASE_URL"
+
         local configured_http_port
         configured_http_port="$(sed -n 's/^CANVAS_HTTP_PORT=//p' .env | tail -n 1)"
         if [[ -n "$configured_http_port" ]]; then
@@ -92,6 +88,7 @@ prepare_environment() {
             ((configured_http_port >= 1 && configured_http_port <= 65535)) || fail ".env 中的 CANVAS_HTTP_PORT 无效"
             CANVAS_HTTP_PORT="$configured_http_port"
         fi
+
         local configured_image_tag
         configured_image_tag="$(sed -n 's/^CANVAS_IMAGE_TAG=//p' .env | tail -n 1)"
         if [[ -n "$configured_image_tag" ]]; then
@@ -119,8 +116,16 @@ CANVAS_CORS_ORIGINS=
 EOF
 }
 
+download_compose() {
+    step "下载 GHCR 镜像部署配置"
+    local temporary_file
+    temporary_file="$(mktemp "${INSTALL_DIR}/.docker-compose.deploy.XXXXXX")"
+    curl -fsSL "$COMPOSE_URL" -o "$temporary_file"
+    mv "$temporary_file" "$COMPOSE_FILE"
+}
+
 start_services() {
-    step "拉取并启动 PostgreSQL、Redis、后端和网页服务"
+    step "拉取并启动 GHCR 网页与后端镜像"
     docker compose --env-file .env -f "$COMPOSE_FILE" pull
     docker compose --env-file .env -f "$COMPOSE_FILE" up -d --remove-orphans --wait --wait-timeout 600
 }
@@ -142,8 +147,9 @@ main() {
     step "安装服务器基础工具"
     install_packages
     install_docker
-    sync_source
+    login_ghcr
     prepare_environment
+    download_compose
     start_services
     print_result
 }

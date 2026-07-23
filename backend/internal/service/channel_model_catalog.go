@@ -8,11 +8,9 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-
-	"infinite-canvas/backend/internal/model"
 )
 
-type ChannelModelsRequest struct {
+type channelModelsRequest struct {
 	BaseURL   string `json:"baseUrl"`
 	APIKey    string `json:"apiKey"`
 	APIFormat string `json:"apiFormat"`
@@ -31,10 +29,7 @@ type channelModelItem struct {
 	Name string `json:"name"`
 }
 
-func (s *Service) FetchChannelModels(ctx context.Context, actor *model.User, input ChannelModelsRequest) ([]string, error) {
-	if actor == nil || strings.TrimSpace(actor.ID) == "" {
-		return nil, Unauthorized("请先登录")
-	}
+func (s *Service) fetchChannelModels(ctx context.Context, input channelModelsRequest) ([]string, error) {
 	baseURL := strings.TrimRight(strings.TrimSpace(input.BaseURL), "/")
 	apiKey := strings.TrimSpace(input.APIKey)
 	if baseURL == "" {
