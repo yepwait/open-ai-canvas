@@ -61,7 +61,7 @@ func (s *Service) FetchAdminChannelModels(ctx context.Context, actor *model.User
 		return nil, err
 	}
 	// 使用服务端保存的渠道密钥请求上游，避免密钥为了拉目录再次经过浏览器。
-	models, err := s.FetchChannelModels(ctx, actor, ChannelModelsRequest{BaseURL: channel.BaseURL, APIKey: channel.APIKey, APIFormat: channel.APIFormat})
+	models, err := s.fetchChannelModels(ctx, channelModelsRequest{BaseURL: channel.BaseURL, APIKey: channel.APIKey, APIFormat: channel.APIFormat})
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +242,7 @@ func capabilityForChannel(channel model.ModelChannel) string {
 	switch channel.InterfaceType {
 	case model.ChannelInterfaceOpenAIImage:
 		return "image"
-	case model.ChannelInterfaceNewAPIVideo, model.ChannelInterfaceNewAPIChannel1, model.ChannelInterfaceNewAPIChannel2:
+	case model.ChannelInterfaceNewAPIVideo, model.ChannelInterfaceNewAPIChannel1, model.ChannelInterfaceNewAPIChannel2, model.ChannelInterfaceXAIVideo:
 		return "video"
 	default:
 		return "text"

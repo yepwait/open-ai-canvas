@@ -574,12 +574,16 @@ func runVideoTask(ctx context.Context, input canvasGenerationInput) (map[string]
 	}
 	id := resumedProviderRequestID(ctx)
 	var created map[string]interface{}
-	if id == "" && isGrokVideoConfig(input.Config) {
+	if id == "" && (input.Config.InterfaceType == "xai-video" || isGrokVideoConfig(input.Config)) {
 		requestBody, err := grokVideoBody(input)
 		if err != nil {
 			return nil, err
 		}
-		if err := postJSON(ctx, input.Config, "/videos", requestBody, &created); err != nil {
+		createPath := "/videos"
+		if input.Config.InterfaceType == "xai-video" {
+			createPath = "/videos/generations"
+		}
+		if err := postJSON(ctx, input.Config, createPath, requestBody, &created); err != nil {
 			return nil, err
 		}
 	} else if id == "" {
@@ -608,17 +612,11 @@ func runVideoTask(ctx context.Context, input canvasGenerationInput) (map[string]
 		}
 	}
 	if id == "" {
-		id = stringField(created, "id")
-		if id == "" {
-			id = stringField(created, "task_id")
-		}
+		id = firstNonEmptyString(stringField(created, "id"), stringField(created, "request_id"), stringField(created, "task_id"))
 	}
 	if id == "" {
 		if data, ok := created["data"].(map[string]interface{}); ok {
-			id = stringField(data, "id")
-			if id == "" {
-				id = stringField(data, "task_id")
-			}
+			id = firstNonEmptyString(stringField(data, "id"), stringField(data, "request_id"), stringField(data, "task_id"))
 		}
 	}
 	if id == "" {
@@ -633,7 +631,7 @@ func runVideoTask(ctx context.Context, input canvasGenerationInput) (map[string]
 			state = data
 		}
 		status := strings.ToLower(stringField(state, "status"))
-		if status == "completed" || status == "succeeded" || status == "success" {
+		if status == "completed" || status == "succeeded" || status == "success" || status == "done" {
 			if videoURL := newAPIVideoResultURL(state); videoURL != "" {
 				data, mimeType, err := getExternalBinary(withProviderRequestKind(ctx, "download"), videoURL)
 				if err != nil {
@@ -664,7 +662,7 @@ func newAPIVideoResultURL(state map[string]interface{}) string {
 
 func nestedNewAPIVideoResultURL(payload map[string]interface{}, allowResultURL bool, depth int) string {
 	if depth < 2 {
-		for _, key := range []string{"data", "result"} {
+		for _, key := range []string{"data", "result", "video"} {
 			if nested, ok := payload[key].(map[string]interface{}); ok {
 				if videoURL := nestedNewAPIVideoResultURL(nested, true, depth+1); videoURL != "" {
 					return videoURL
@@ -986,7 +984,7 @@ func validateGenerationInterface(mode string, interfaceType string) error {
 	allowed := map[string]map[string]bool{
 		"text":  {"chat-completion": true, "openai-response": true},
 		"image": {"openai-image": true},
-		"video": {"newapi": true, "newapi-channel-1": true, "newapi-channel-2": true},
+		"video": {"newapi": true, "newapi-channel-1": true, "newapi-channel-2": true, "xai-video": true},
 	}
 	if allowed[mode] != nil && !allowed[mode][interfaceType] {
 		return fmt.Errorf("接口类型 %s 不支持%s生成", interfaceType, mode)
@@ -995,6 +993,10 @@ func validateGenerationInterface(mode string, interfaceType string) error {
 }
 
 func grokVideoBody(input canvasGenerationInput) (map[string]interface{}, error) {
+	if input.Config.InterfaceType == "xai-video" {
+		return xaiVideoBody(input)
+	}
+
 	seconds := defaultString(input.Config.VideoSeconds, "6")
 	duration, err := strconv.Atoi(seconds)
 	if err != nil || duration <= 0 {
@@ -1021,6 +1023,29 @@ func grokVideoBody(input canvasGenerationInput) (map[string]interface{}, error) 
 		body["image"] = images[0]
 		body["images"] = images
 	}
+	return body, nil
+}
+
+// xAI 生成接口与 legacy /videos 使用不同字段，保持独立可避免兼容字段触发上游 422。
+func xaiVideoBody(input canvasGenerationInput) (map[string]interface{}, error) {
+	body := map[string]interface{}{
+		"model":        input.Config.Model,
+		"prompt":       strings.TrimSpace(input.Prompt),
+		"duration":     normalizeXAIVideoDuration(input.Config.VideoSeconds),
+		"aspect_ratio": normalizeXAIVideoAspectRatio(input.Config.Size),
+		"resolution":   normalizeXAIVideoResolution(input.Config.VQuality),
+	}
+	if !shouldSendNewAPIVideoImages(input) || len(input.ReferenceImages) == 0 {
+		return body, nil
+	}
+	if len(input.ReferenceImages) > 1 {
+		return nil, fmt.Errorf("xAI 图生视频只支持 1 张起始图，当前连接了 %d 张", len(input.ReferenceImages))
+	}
+	imageURL, err := openAIImageInputURL(input.ReferenceImages[0])
+	if err != nil {
+		return nil, err
+	}
+	body["image"] = map[string]interface{}{"url": imageURL}
 	return body, nil
 }
 
@@ -1787,6 +1812,74 @@ func normalizeVideoResolution(value string) string {
 		return value
 	}
 	return value + "p"
+}
+
+func normalizeXAIVideoDuration(value string) int {
+	duration, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || duration <= 0 {
+		return 6
+	}
+	if duration > 15 {
+		return 15
+	}
+	return duration
+}
+
+func normalizeXAIVideoResolution(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "480", "480p", "low":
+		return "480p"
+	case "1080", "1080p":
+		return "1080p"
+	default:
+		return "720p"
+	}
+}
+
+func normalizeXAIVideoAspectRatio(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	allowed := map[string]bool{
+		"1:1": true, "16:9": true, "9:16": true, "4:3": true,
+		"3:4": true, "3:2": true, "2:3": true,
+	}
+	if allowed[value] {
+		return value
+	}
+	parts := strings.Split(value, "x")
+	if len(parts) != 2 {
+		return "16:9"
+	}
+	width, widthErr := strconv.Atoi(strings.TrimSpace(parts[0]))
+	height, heightErr := strconv.Atoi(strings.TrimSpace(parts[1]))
+	if widthErr != nil || heightErr != nil || width <= 0 || height <= 0 {
+		return "16:9"
+	}
+	ratio := float64(width) / float64(height)
+	candidates := []struct {
+		name  string
+		ratio float64
+	}{
+		{name: "1:1", ratio: 1},
+		{name: "16:9", ratio: 16.0 / 9},
+		{name: "9:16", ratio: 9.0 / 16},
+		{name: "4:3", ratio: 4.0 / 3},
+		{name: "3:4", ratio: 3.0 / 4},
+		{name: "3:2", ratio: 3.0 / 2},
+		{name: "2:3", ratio: 2.0 / 3},
+	}
+	bestName := "16:9"
+	bestDifference := 2.0
+	for _, candidate := range candidates {
+		difference := ratio - candidate.ratio
+		if difference < 0 {
+			difference = -difference
+		}
+		if difference < bestDifference {
+			bestName = candidate.name
+			bestDifference = difference
+		}
+	}
+	return bestName
 }
 
 func normalizeSeedanceDuration(value string) int {

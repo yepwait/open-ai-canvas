@@ -9,7 +9,7 @@ RUN --mount=type=cache,target=/root/.bun/install/cache bun install --cache-dir=/
 COPY VERSION /app/VERSION
 COPY CHANGELOG.md /app/CHANGELOG.md
 COPY web ./
-# ponytail: Bun 1.3.13 会错误解析 TypeScript 7 的 .bin 相对路径，直接调用包入口即可；升级 Bun 后可恢复脚本入口。
+# Bun 1.3.13 会错误解析 TypeScript 7 的 .bin 相对路径，暂时直接调用包入口；升级 Bun 后可恢复 bun run build。
 RUN bun ./node_modules/typescript/bin/tsc --noEmit \
     && bun ./node_modules/vite/bin/vite.js build
 

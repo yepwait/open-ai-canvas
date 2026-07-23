@@ -80,6 +80,7 @@ const channelProtocolOptions = [
             { label: "NewAPI 视频", value: "newapi" },
             { label: "NewAPI 渠道 1", value: "newapi-channel-1" },
             { label: "NewAPI 渠道 2", value: "newapi-channel-2" },
+            { label: "xAI / Sub2API 视频", value: "xai-video" },
         ],
     },
 ];
@@ -182,7 +183,7 @@ export function AppConfigModal() {
         }
         setChannelLoading(channel.id, true);
         try {
-            const models = await fetchChannelModels(channel, Boolean(userId));
+            const models = await fetchChannelModels(channel);
             if (!models.length) {
                 message.warning(`${channel.name || "当前渠道"}未返回模型，已保留现有手工模型`);
                 return;
@@ -219,7 +220,7 @@ export function AppConfigModal() {
             const results = await Promise.all(
                 runnable.map(async (channel) => {
                     try {
-                        const models = await fetchChannelModels(channel, Boolean(userId));
+                        const models = await fetchChannelModels(channel);
                         return { channel, models, error: "" };
                     } catch (error) {
                         return { channel, models: [] as string[], error: error instanceof Error ? error.message : "读取失败" };
@@ -750,6 +751,8 @@ function channelProtocolLabel(channel: ModelChannel) {
             return "NewAPI 渠道 1";
         case "newapi-channel-2":
             return "NewAPI 渠道 2";
+        case "xai-video":
+            return "xAI / Sub2API 视频";
         default:
             return "OpenAI 自动兼容";
     }

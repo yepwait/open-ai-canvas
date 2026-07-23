@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/ddcat-ai/open-ai-canvas"><img src="https://img.shields.io/github/stars/ddcat-ai/open-ai-canvas?style=flat-square&logo=github" alt="GitHub stars"></a>
-  <a href="VERSION"><img src="https://img.shields.io/badge/version-v0.16.4-2563eb?style=flat-square" alt="Version"></a>
+  <a href="VERSION"><img src="https://img.shields.io/badge/version-v1.0.2-2563eb?style=flat-square" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-f97316?style=flat-square" alt="License"></a>
 </p>
 
@@ -59,6 +59,8 @@
 
 ## 交流与反馈
 
+感谢 [Linux.do 社区](https://linux.do/) 对项目的认可与支持，欢迎在社区参与讨论和分享使用体验。
+
 Issue 反馈、技术讨论和产品升级建议都可以在 QQ 群中沟通。群内还会不定期组织 AI 学习与培训交流会。
 
 <p align="center">
@@ -73,7 +75,7 @@ Issue 反馈、技术讨论和产品升级建议都可以在 QQ 群中沟通。�
 curl -fsSL https://raw.githubusercontent.com/ddcat-ai/open-ai-canvas/main/scripts/install-server.sh | sudo bash
 ```
 
-脚本会自动安装 Docker 和 Docker Compose，把项目安装到 `/opt/open-ai-canvas`，生成随机数据库密码，并启动网页、后端、PostgreSQL 和 Redis。数据库和上传文件使用 Docker 数据卷持久保存，重新启动容器不会丢失。
+脚本会自动安装 Docker 和 Docker Compose，把部署配置安装到 `/opt/open-ai-canvas`，生成随机数据库密码，从 GitHub Container Registry 拉取网页与后端镜像，并启动网页、后端、PostgreSQL 和 Redis。数据库和上传文件使用 Docker 数据卷持久保存，重新启动容器不会丢失。
 
 完成后打开 `http://服务器IP:3000`。第一个注册的账号会自动成为管理员；登录后在系统设置中配置模型渠道即可开始使用。公开注册默认关闭，但不影响第一个管理员注册。
 
@@ -84,6 +86,18 @@ cd /opt/open-ai-canvas
 sudo docker compose --env-file .env -f docker-compose.deploy.yml ps
 sudo docker compose --env-file .env -f docker-compose.deploy.yml logs -f --tail=200
 ```
+
+默认拉取 `ghcr.io/ddcat-ai/open-ai-canvas-web:latest` 和 `ghcr.io/ddcat-ai/open-ai-canvas-backend:latest`。发布版本还会生成去掉 `v` 前缀的版本标签；如需固定版本，可在 `.env` 中设置 `CANVAS_IMAGE_TAG=1.0.2`。
+
+### 直接使用 GitHub Packages 镜像
+
+如果服务器不需要源码目录，可以使用只拉取 GitHub Container Registry（GHCR）镜像的快速脚本。脚本会下载部署 Compose 文件，不会 clone Git 仓库；首次执行仍会自动安装 Docker、生成 `/opt/open-ai-canvas/.env` 并启动全部服务：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ddcat-ai/open-ai-canvas/main/scripts/install-server-image.sh | sudo bash
+```
+
+默认使用 `latest` 标签。固定版本或修改端口可在首次执行后编辑 `/opt/open-ai-canvas/.env`，然后重新执行脚本；使用私有 GHCR 镜像时，请先执行 `docker login ghcr.io`，或在直接运行脚本时提供 `GHCR_USERNAME` 和 `GHCR_TOKEN` 环境变量完成登录。
 
 部署配置和 PostgreSQL 密码保存在 `/opt/open-ai-canvas/.env`，不要发送给他人，也不要删除 `backend-data`、`postgres-data` 和 `redis-data` 数据卷。数据卷持久化不等于备份，请定期备份 PostgreSQL 和上传文件。直接使用 IP 访问仅适合首次配置；公网长期使用必须绑定域名并配置 HTTPS。
 

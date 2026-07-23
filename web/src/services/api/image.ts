@@ -4,6 +4,7 @@ import { buildApiUrl, isSystemProxyBaseUrl, resolveBackendApiUrl, resolveModelRe
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { buildImageReferencePromptText } from "@/lib/image-reference-prompt";
+import { channelRequest } from "@/services/api/custom-channel-relay";
 import { imageToDataUrl } from "@/services/image-storage";
 import type { ReferenceImage } from "@/types/image";
 
@@ -249,10 +250,6 @@ function aiHeaders(config: AiConfig, contentType?: string) {
     };
 }
 
-function aiFetchCredentials(config: Pick<AiConfig, "baseUrl">): RequestCredentials {
-    return isSystemProxyBaseUrl(config.baseUrl) ? "include" : "same-origin";
-}
-
 function geminiBaseUrl(config: Pick<AiConfig, "baseUrl">) {
     const normalizedBaseUrl = resolveBackendApiUrl(config.baseUrl).replace(/\/+$/, "");
     const lowerBaseUrl = normalizedBaseUrl.toLowerCase();
@@ -454,12 +451,13 @@ function consumeResponseStreamText(state: ResponseStreamState, text: string, onD
 }
 
 async function requestStreamingResponse(config: AiConfig, body: Record<string, unknown>, onDelta?: (text: string) => void, options?: RequestOptions): Promise<ToolResponseResult> {
-    const response = await fetch(aiApiUrl(config, "/responses"), {
+    const request = channelRequest(config, aiApiUrl(config, "/responses"), { ...aiHeaders(config, "application/json"), Accept: "text/event-stream" });
+    const response = await fetch(request.url, {
         method: "POST",
-        headers: { ...aiHeaders(config, "application/json"), Accept: "text/event-stream" },
+        headers: request.headers,
         body: JSON.stringify({ ...body, stream: true }),
         signal: options?.signal,
-        credentials: aiFetchCredentials(config),
+        credentials: request.credentials,
     });
     if (!response.ok) throw new Error(await readFetchError(response, "请求失败"));
     if (!response.body) {
@@ -534,12 +532,13 @@ function consumeChatCompletionStreamText(state: ChatCompletionStreamState, text:
 }
 
 async function requestStreamingChatCompletion(config: AiConfig, body: Record<string, unknown>, onDelta?: (text: string) => void, options?: RequestOptions): Promise<ToolResponseResult> {
-    const response = await fetch(aiApiUrl(config, "/chat/completions"), {
+    const request = channelRequest(config, aiApiUrl(config, "/chat/completions"), { ...aiHeaders(config, "application/json"), Accept: "text/event-stream" });
+    const response = await fetch(request.url, {
         method: "POST",
-        headers: { ...aiHeaders(config, "application/json"), Accept: "text/event-stream" },
+        headers: request.headers,
         body: JSON.stringify({ ...body, stream: true }),
         signal: options?.signal,
-        credentials: aiFetchCredentials(config),
+        credentials: request.credentials,
     });
     if (!response.ok) throw new Error(await readFetchError(response, "请求失败"));
     const contentType = response.headers.get("content-type") || "";
@@ -640,12 +639,13 @@ function toGeminiToolOptions(tools: ResponseFunctionTool[], toolChoice: ToolChoi
 }
 
 async function requestGeminiStreamingResponse(config: AiConfig, body: Record<string, unknown>, onDelta?: (text: string) => void, options?: RequestOptions): Promise<ToolResponseResult> {
-    const response = await fetch(`${geminiApiUrl(config, "streamGenerateContent")}?alt=sse`, {
+    const request = channelRequest(config, `${geminiApiUrl(config, "streamGenerateContent")}?alt=sse`, geminiHeaders(config));
+    const response = await fetch(request.url, {
         method: "POST",
-        headers: geminiHeaders(config),
+        headers: request.headers,
         body: JSON.stringify(body),
         signal: options?.signal,
-        credentials: aiFetchCredentials(config),
+        credentials: request.credentials,
     });
     if (!response.ok) throw new Error(await readFetchError(response, "请求失败"));
     if (!response.body) {
@@ -887,18 +887,17 @@ export async function requestToolResponse(config: AiConfig, messages: ResponseIn
 export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKey" | "apiFormat">) {
     try {
         if (config.apiFormat === "gemini") {
-            const response = await axios.get<GeminiPayload>(geminiApiUrl({ ...defaultGeminiConfig, ...config }), { headers: geminiHeaders({ ...defaultGeminiConfig, ...config }) });
+            const requestConfig = { ...defaultGeminiConfig, ...config };
+            const request = channelRequest(requestConfig, geminiApiUrl(requestConfig), geminiHeaders(requestConfig));
+            const response = await axios.get<GeminiPayload>(request.url, { headers: request.headers, withCredentials: request.credentials === "include" });
             validateGeminiPayload(response.data);
             return (response.data.models || [])
                 .map((model) => model.name?.replace(/^models\//, ""))
                 .filter((id): id is string => Boolean(id))
                 .sort((a, b) => a.localeCompare(b));
         }
-        const response = await axios.get<{ data?: Array<{ id?: string }>; error?: { message?: string } }>(buildApiUrl(config.baseUrl, "/models"), {
-            headers: {
-                Authorization: `Bearer ${config.apiKey}`,
-            },
-        });
+        const request = channelRequest(config, buildApiUrl(config.baseUrl, "/models"), { Authorization: `Bearer ${config.apiKey}` });
+        const response = await axios.get<{ data?: Array<{ id?: string }>; error?: { message?: string } }>(request.url, { headers: request.headers, withCredentials: request.credentials === "include" });
         return (response.data.data || [])
             .map((model) => model.id)
             .filter((id): id is string => Boolean(id))
@@ -908,28 +907,8 @@ export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKe
     }
 }
 
-export async function fetchChannelModels(channel: ModelChannel, viaBackend = false) {
-    if (!viaBackend) {
-        return fetchImageModels({ baseUrl: channel.baseUrl, apiKey: channel.apiKey, apiFormat: channel.apiFormat });
-    }
-    try {
-        // 登录态由同源后端代取模型目录，避免每个 OpenAI 兼容服务分别维护浏览器 CORS 白名单。
-        const response = await axios.post<{ code?: number; data?: { models?: string[] }; msg?: string }>(
-            resolveBackendApiUrl("/api/ai/models"),
-            {
-                baseUrl: channel.baseUrl,
-                apiKey: channel.apiKey,
-                apiFormat: channel.apiFormat,
-            },
-            { withCredentials: true },
-        );
-        if (typeof response.data.code === "number" && response.data.code !== 0) {
-            throw new Error(response.data.msg || "读取模型失败");
-        }
-        return Array.from(new Set((response.data.data?.models || []).map((model) => model.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
-    } catch (error) {
-        throw new Error(readAxiosError(error, "读取模型失败"));
-    }
+export async function fetchChannelModels(channel: ModelChannel) {
+    return fetchImageModels({ baseUrl: channel.baseUrl, apiKey: channel.apiKey, apiFormat: channel.apiFormat });
 }
 
 const defaultGeminiConfig: Pick<AiConfig, "baseUrl" | "apiKey" | "apiFormat" | "model" | "systemPrompt"> = {
