@@ -80,6 +80,10 @@ prepare_environment() {
     mkdir -p "$INSTALL_DIR"
     cd "$INSTALL_DIR"
 
+    # Production deployments must keep backend resources on the same persistent
+    # data volume as the running container. The compose default is the named
+    # backend-data volume; deployments that override CANVAS_DATA_PATH must keep
+    # the existing resources/ directory on that same path.
     if [[ -f .env ]]; then
         grep -Eq '^POSTGRES_PASSWORD=.+$' .env || fail "现有 .env 缺少 POSTGRES_PASSWORD"
         grep -Eq '^DATABASE_URL=.+$' .env || fail "现有 .env 缺少 DATABASE_URL"
@@ -90,6 +94,17 @@ prepare_environment() {
             [[ "$configured_http_port" =~ ^[0-9]+$ ]] || fail ".env 中的 CANVAS_HTTP_PORT 无效"
             ((configured_http_port >= 1 && configured_http_port <= 65535)) || fail ".env 中的 CANVAS_HTTP_PORT 无效"
             CANVAS_HTTP_PORT="$configured_http_port"
+        fi
+
+        # Do not let an old path silently switch storage roots during an update.
+        # Keep an explicitly configured path, but fail early if it is missing the
+        # resources directory that existing database rows depend on.
+        local configured_data_path
+        configured_data_path="$(sed -n 's/^CANVAS_DATA_PATH=//p' .env | tail -n 1)"
+        if [[ -n "$configured_data_path" ]]; then
+            local data_path="$configured_data_path"
+            [[ "$data_path" = /* ]] || data_path="$INSTALL_DIR/$data_path"
+            [[ -d "$data_path/resources" ]] || fail "CANVAS_DATA_PATH=$configured_data_path 缺少 resources 目录；为避免模型参考图失效，请先恢复原有后端数据卷"
         fi
 
         local configured_image_tag

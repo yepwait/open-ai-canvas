@@ -130,6 +130,22 @@ func TestCreateBackupReadsBackendDataAsRoot(t *testing.T) {
 	t.Fatalf("backend data backup did not use root: %#v", runner.calls)
 }
 
+func TestReleaseAssetURLsUsesMirrorAndDirectFallback(t *testing.T) {
+	manager := &Manager{config: Config{GitHubDownloadMirror: "https://ghproxy.net/"}}
+	urls := manager.releaseAssetURLs("https://github.com/ddcat-ai/open-ai-canvas/releases/download/v1.2.7/SHA256SUMS")
+	if len(urls) != 2 || urls[0] != "https://ghproxy.net/https://github.com/ddcat-ai/open-ai-canvas/releases/download/v1.2.7/SHA256SUMS" || urls[1] != "https://github.com/ddcat-ai/open-ai-canvas/releases/download/v1.2.7/SHA256SUMS" {
+		t.Fatalf("unexpected release asset URLs: %#v", urls)
+	}
+}
+
+func TestReleaseAssetURLsWithoutMirror(t *testing.T) {
+	manager := &Manager{}
+	urls := manager.releaseAssetURLs("https://github.com/example/release/asset")
+	if len(urls) != 1 || urls[0] != "https://github.com/example/release/asset" {
+		t.Fatalf("unexpected direct release asset URLs: %#v", urls)
+	}
+}
+
 func TestCheckWritableDirectory(t *testing.T) {
 	directory := t.TempDir()
 	if err := checkWritableDirectory(directory); err != nil {

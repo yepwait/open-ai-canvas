@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -22,19 +23,20 @@ import (
 const maxReleaseResponseBytes = 4 << 20
 
 type Config struct {
-	Repository   string
-	InstallDir   string
-	ComposeFile  string
-	EnvFile      string
-	StateDir     string
-	BackupDir    string
-	HealthURL    string
-	GitHubToken  string
-	StableWindow time.Duration
-	StepTimeout  time.Duration
-	BinaryPath   string
-	ServiceName  string
-	SelfUpdate   bool
+	Repository           string
+	GitHubDownloadMirror string
+	InstallDir           string
+	ComposeFile          string
+	EnvFile              string
+	StateDir             string
+	BackupDir            string
+	HealthURL            string
+	GitHubToken          string
+	StableWindow         time.Duration
+	StepTimeout          time.Duration
+	BinaryPath           string
+	ServiceName          string
+	SelfUpdate           bool
 }
 
 type commandRunner interface {
@@ -72,6 +74,9 @@ func NewManager(config Config) (*Manager, error) {
 	if config.Repository == "" {
 		config.Repository = "ddcat-ai/open-ai-canvas"
 	}
+	if strings.TrimSpace(config.GitHubDownloadMirror) == "" {
+		config.GitHubDownloadMirror = "https://ghproxy.net/"
+	}
 	if config.InstallDir == "" {
 		config.InstallDir = "/opt/open-ai-canvas"
 	}
@@ -100,10 +105,20 @@ func NewManager(config Config) (*Manager, error) {
 		return nil, fmt.Errorf("创建备份目录：%w", err)
 	}
 	manager := &Manager{
-		config:     config,
-		runner:     execRunner{dir: config.InstallDir},
-		httpClient: &http.Client{Timeout: 30 * time.Second},
-		state:      persistedState{Operation: Operation{Phase: PhaseIdle, Logs: []LogEntry{}}},
+		config: config,
+		runner: execRunner{dir: config.InstallDir},
+		httpClient: &http.Client{
+			Timeout: 10 * time.Minute,
+			Transport: &http.Transport{
+				Proxy:                 http.ProxyFromEnvironment,
+				DialContext:           (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+				TLSHandshakeTimeout:   60 * time.Second,
+				ResponseHeaderTimeout: 2 * time.Minute,
+				ExpectContinueTimeout: 1 * time.Second,
+				IdleConnTimeout:       90 * time.Second,
+			},
+		},
+		state: persistedState{Operation: Operation{Phase: PhaseIdle, Logs: []LogEntry{}}},
 	}
 	if err := manager.loadState(); err != nil {
 		return nil, err

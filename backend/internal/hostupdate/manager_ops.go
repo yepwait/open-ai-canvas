@@ -210,30 +210,55 @@ func (m *Manager) prepareUpdaterBinary(targetVersion string) (string, error) {
 }
 
 func (m *Manager) downloadReleaseAsset(url string, limit int64) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
+	var lastErr error
+	for _, candidate := range m.releaseAssetURLs(url) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, candidate, nil)
+		if err != nil {
+			cancel()
+			lastErr = err
+			continue
+		}
+		request.Header.Set("User-Agent", "open-ai-canvas-host-updater")
+		response, err := m.httpClient.Do(request)
+		if err != nil {
+			cancel()
+			lastErr = err
+			continue
+		}
+		if response.StatusCode != http.StatusOK {
+			_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
+			_ = response.Body.Close()
+			cancel()
+			lastErr = fmt.Errorf("HTTP %d", response.StatusCode)
+			continue
+		}
+		reader := io.LimitReader(response.Body, limit+1)
+		data, err := io.ReadAll(reader)
+		_ = response.Body.Close()
+		cancel()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if int64(len(data)) > limit {
+			lastErr = errors.New("Release 资产超过允许大小")
+			continue
+		}
+		return data, nil
 	}
-	request.Header.Set("User-Agent", "open-ai-canvas-host-updater")
-	response, err := m.httpClient.Do(request)
-	if err != nil {
-		return nil, err
+	if lastErr == nil {
+		lastErr = errors.New("没有可用的 Release 下载地址")
 	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", response.StatusCode)
+	return nil, lastErr
+}
+
+func (m *Manager) releaseAssetURLs(url string) []string {
+	mirror := strings.TrimSpace(m.config.GitHubDownloadMirror)
+	if mirror == "" {
+		return []string{url}
 	}
-	reader := io.LimitReader(response.Body, limit+1)
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(data)) > limit {
-		return nil, errors.New("Release 资产超过允许大小")
-	}
-	return data, nil
+	return []string{strings.TrimRight(mirror, "/") + "/" + url, url}
 }
 
 func (m *Manager) restartSelf() {

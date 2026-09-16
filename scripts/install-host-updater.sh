@@ -5,6 +5,7 @@ set -Eeuo pipefail
 INSTALL_DIR="${INSTALL_DIR:-/opt/open-ai-canvas}"
 REPOSITORY="${REPOSITORY:-ddcat-ai/open-ai-canvas}"
 SOCKET_DIR="${CANVAS_UPDATER_SOCKET_DIR:-/run/open-ai-canvas-updater}"
+GITHUB_DOWNLOAD_MIRROR="${CANVAS_UPDATER_GITHUB_DOWNLOAD_MIRROR:-https://ghproxy.net}"
 UPDATER_BIN="/usr/local/bin/open-ai-canvas-host-updater"
 UPDATER_ENV="/etc/open-ai-canvas-updater.env"
 UPDATER_SERVICE="/etc/systemd/system/open-ai-canvas-updater.service"
@@ -36,6 +37,17 @@ read_image_tag() {
     fi
 }
 
+download_release_asset() {
+    local asset="$1" output="$2" mirror_url=""
+    if [[ -n "${GITHUB_DOWNLOAD_MIRROR}" ]]; then
+        mirror_url="${GITHUB_DOWNLOAD_MIRROR%/}/https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}/${asset}"
+        if curl --fail --silent --show-error --location --connect-timeout 15 --max-time 300 "$mirror_url" -o "$output"; then
+            return 0
+        fi
+    fi
+    curl --fail --silent --show-error --location --connect-timeout 15 --max-time 300 "https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}/${asset}" -o "$output"
+}
+
 install_binary() {
     local arch asset temporary checksum_file expected
     case "$(uname -m)" in
@@ -46,8 +58,8 @@ install_binary() {
     asset="open-ai-canvas-host-updater-linux-${arch}"
     temporary="$(mktemp)"
     checksum_file="$(mktemp)"
-    curl -fsSL "https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}/${asset}" -o "$temporary"
-    curl -fsSL "https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}/SHA256SUMS" -o "$checksum_file"
+    download_release_asset "$asset" "$temporary"
+    download_release_asset "SHA256SUMS" "$checksum_file"
     expected="$(awk -v asset="$asset" '$2 == asset { print $1 }' "$checksum_file")"
     [[ "$expected" =~ ^[a-f0-9]{64}$ ]] || fail "Release 校验清单缺少 ${asset}"
     printf '%s  %s\n' "$expected" "$temporary" | sha256sum -c - >/dev/null || fail "Host Updater SHA-256 校验失败"
@@ -72,14 +84,22 @@ ensure_token() {
     fi
     [[ ${#token} -ge 32 ]] || fail "CANVAS_UPDATER_TOKEN 长度不足"
     umask 077
-    printf 'CANVAS_UPDATER_TOKEN=%s\nCANVAS_UPDATER_INSTALL_DIR=%s\nCANVAS_UPDATER_SOCKET=%s/updater.sock\n' "$token" "$INSTALL_DIR" "$SOCKET_DIR" > "$UPDATER_ENV"
+    printf 'CANVAS_UPDATER_TOKEN=%s\nCANVAS_UPDATER_INSTALL_DIR=%s\nCANVAS_UPDATER_SOCKET=%s/updater.sock\nCANVAS_UPDATER_GITHUB_DOWNLOAD_MIRROR=%s\n' "$token" "$INSTALL_DIR" "$SOCKET_DIR" "$GITHUB_DOWNLOAD_MIRROR" > "$UPDATER_ENV"
 }
 
 install_service() {
-    local temporary_service
+    local temporary_service systemd_version
+    local -a hardening_lines=()
     install -d -m 0755 "$SOCKET_DIR"
     install -d -m 0700 /var/lib/open-ai-canvas-updater "${INSTALL_DIR}/backups"
     temporary_service="$(mktemp)"
+    systemd_version="$(systemctl --version | awk 'NR == 1 { print $2 }')"
+    if [[ "$systemd_version" =~ ^[0-9]+$ ]] && (( systemd_version >= 231 )); then
+        hardening_lines=(
+            'ProtectSystem=full'
+            "ReadWritePaths=${INSTALL_DIR} /var/lib/open-ai-canvas-updater ${SOCKET_DIR} /usr/local/bin"
+        )
+    fi
     printf '%s\n' \
         '[Unit]' \
         'Description=Open AI Canvas Host Updater' \
@@ -96,8 +116,7 @@ install_service() {
         'NoNewPrivileges=true' \
         'PrivateTmp=true' \
         'ProtectHome=true' \
-        'ProtectSystem=full' \
-        "ReadWritePaths=${INSTALL_DIR} /var/lib/open-ai-canvas-updater ${SOCKET_DIR} /usr/local/bin" \
+        "${hardening_lines[@]}" \
         '' \
         '[Install]' \
         'WantedBy=multi-user.target' > "$temporary_service"

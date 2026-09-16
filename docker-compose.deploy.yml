@@ -57,6 +57,7 @@ services:
       CANVAS_UPDATER_TOKEN: ${CANVAS_UPDATER_TOKEN:-}
       GIN_MODE: release
     volumes:
+      # 资源、插件和技能必须共享同一个持久化后端数据目录；不要在生产环境绑定到临时 ./data。
       - ${CANVAS_DATA_PATH:-backend-data}:/data
       - ${CANVAS_UPDATER_SOCKET_DIR:-/run/open-ai-canvas-updater}:/run/open-ai-canvas-updater
     depends_on:
