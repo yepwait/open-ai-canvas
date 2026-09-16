@@ -1,0 +1,27 @@
+services:
+  migrate:
+    image: open-ai-canvas-backend:latest-7e74af35
+    build:
+      context: .
+      dockerfile: backend-tencent1.Dockerfile
+      args:
+        GOPROXY: https://goproxy.cn,direct
+        BUILD_VERSION: v1.3.0
+        BUILD_COMMIT: 7e74af353b34df435bb77000e30d1b96492d210d
+  backend:
+    image: open-ai-canvas-backend:latest-7e74af35
+    build:
+      context: .
+      dockerfile: backend-tencent1.Dockerfile
+      args:
+        GOPROXY: https://goproxy.cn,direct
+        BUILD_VERSION: v1.3.0
+        BUILD_COMMIT: 7e74af353b34df435bb77000e30d1b96492d210d
+  web:
+    image: open-ai-canvas-web:latest-7e74af35
+    build:
+      context: .
+      dockerfile: web-tencent1.Dockerfile
+      args:
+        VITE_TLDRAW_LICENSE_KEY: ${VITE_TLDRAW_LICENSE_KEY:-}
+        BUILD_VERSION: v1.3.0
