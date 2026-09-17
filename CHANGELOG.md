@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 新增画布多选工具栏和节点右键菜单的「发送到 Agent」快捷入口，点击后自动带入节点引用。
+
 ## v1.3.0
 
 - 发布正式版本 `v1.3.0`，提供 `ghcr.io/ddcat-ai/open-ai-canvas-web:1.3.0` 与 `ghcr.io/ddcat-ai/open-ai-canvas-backend:1.3.0` 的 Linux amd64/arm64 镜像，并更新 `latest` 镜像。
