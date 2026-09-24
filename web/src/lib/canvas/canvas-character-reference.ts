@@ -46,6 +46,8 @@ export function refreshCanvasCharacterReferenceNodes(nodes: CanvasNodeData[], as
                 timbre: card.voice.profile.timbre,
             } : undefined,
             characterVoiceInstructions: card.voice?.instructions,
+            characterRepresentationResources: card.representations,
+            characterVoiceSampleResourceId: card.voice?.profile.sampleResourceId,
         };
         if (node.title === asset.title
             && metadata.characterVersionId === patch.characterVersionId
@@ -57,6 +59,8 @@ export function refreshCanvasCharacterReferenceNodes(nodes: CanvasNodeData[], as
             && JSON.stringify(metadata.characterDefinition) === JSON.stringify(patch.characterDefinition)
             && JSON.stringify(metadata.characterVoiceProfile) === JSON.stringify(patch.characterVoiceProfile)
             && metadata.characterVoiceInstructions === patch.characterVoiceInstructions
+            && JSON.stringify(metadata.characterRepresentationResources) === JSON.stringify(patch.characterRepresentationResources)
+            && metadata.characterVoiceSampleResourceId === patch.characterVoiceSampleResourceId
             && (metadata.characterAliases || []).join("\u0000") === aliases.join("\u0000")) return node;
         changed = true;
         return { ...node, title: asset.title, metadata: { ...metadata, ...patch } };

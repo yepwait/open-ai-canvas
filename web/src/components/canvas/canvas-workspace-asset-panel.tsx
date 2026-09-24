@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { App, Button } from "antd";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { FileText, Images, Plus, RefreshCw } from "lucide-react";
+import { FileText, Images, Plus, RefreshCw, UserRound } from "lucide-react";
 import { CachedResourceImage } from "@/components/cached-resource-image";
 import { WorkspaceState } from "@/components/layout/workspace-state";
 import { ASSET_CATEGORY_LABELS, type AssetCategory } from "@/lib/asset-category";
@@ -29,7 +29,7 @@ export function CanvasWorkspaceAssetPanel({ onInsert, onManage, onProjectAssets 
     const query = useInfiniteQuery({
         queryKey: ["canvas-workspace-assets", userId, category, kind, search],
         initialPageParam: 1,
-        queryFn: ({ signal, pageParam }) => loadAssetLibraryPage({ page: pageParam, pageSize: 40, category, kind: kind === "all" ? undefined : kind, status: "active", query: search, signal }),
+        queryFn: ({ signal, pageParam }) => loadAssetLibraryPage({ page: pageParam, pageSize: 40, category, kind: kind === "all" ? undefined : kind, status: "active", query: search, includeEntities: true, signal }),
         getNextPageParam: (page, pages) => (pages.reduce((count, item) => count + item.assets.length, 0) < page.total ? pages.length + 1 : undefined),
         enabled: Boolean(userId) && hydrated,
     });
@@ -72,6 +72,7 @@ export function CanvasWorkspaceAssetPanel({ onInsert, onManage, onProjectAssets 
                             { value: "video", label: "视频" },
                             { value: "audio", label: "音频" },
                             { value: "text", label: "文本" },
+                            { value: "entity", label: "角色卡" },
                         ]}
                     />
                     <Button type="text" aria-label="刷新资产" loading={query.isFetching} icon={<RefreshCw className="size-4" />} onClick={() => void query.refetch()} />
@@ -92,19 +93,19 @@ export function CanvasWorkspaceAssetPanel({ onInsert, onManage, onProjectAssets 
                     </div>
                 ) : null}
                 {assets.map((asset) => {
-                    const insertable = ["image", "video", "audio", "text"].includes(asset.kind);
+                    const insertable = ["image", "video", "audio", "text", "entity"].includes(asset.kind);
                     const cover = asset.coverUrl || (asset.kind === "image" ? asset.data.dataUrl : "");
                     return (
                         <div key={asset.id} className="group flex items-center gap-2 rounded-md p-2 hover:bg-surface-hover">
                             <div className="grid h-11 w-14 shrink-0 place-items-center overflow-hidden rounded-md border border-border">
-                                <CachedResourceImage src={cover} storageKey={asset.kind === "image" ? asset.data.storageKey : undefined} alt="" className="h-full w-full object-cover" fallback={<FileText className="size-4 text-muted-foreground" />} />
+                                <CachedResourceImage src={cover} storageKey={asset.kind === "image" ? asset.data.storageKey : undefined} alt="" className={asset.kind === "entity" ? "h-full w-full object-contain" : "h-full w-full object-cover"} fallback={asset.kind === "entity" ? <UserRound className="size-4 text-muted-foreground" /> : <FileText className="size-4 text-muted-foreground" />} />
                             </div>
                             <div className="min-w-0 flex-1">
                                 <div className="truncate text-sm" title={asset.title}>
                                     {asset.title}
                                 </div>
                                 <div className="truncate text-xs text-muted-foreground">
-                                    {resourceStorageLabel("storageKey" in asset.data ? asset.data.storageKey : undefined)}
+                                    {asset.kind === "entity" ? "角色卡" : resourceStorageLabel("storageKey" in asset.data ? asset.data.storageKey : undefined)}
                                     {asset.tags?.length ? ` · ${asset.tags[0]}` : ""}
                                 </div>
                             </div>

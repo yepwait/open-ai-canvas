@@ -48,6 +48,31 @@ func TestUserAssetsPagePaginatesAndIsolatesUsers(t *testing.T) {
 	}
 }
 
+func TestUserAssetsPageCanIncludeCharacterEntitiesForCanvas(t *testing.T) {
+	repo, db := newAssetLibraryTestRepository(t)
+	now := time.Now().UTC()
+	asset := model.Asset{ID: "character-1", UserID: "user-1", Kind: "entity", Category: model.AssetCategoryCharacter, Status: model.AssetVersionStatusConfirmed, Title: "扶颦", PayloadJSON: `{"id":"character-1","kind":"entity","category":"character"}`, CreatedAt: now, UpdatedAt: now}
+	if err := db.Create(&asset).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	withoutEntities, totalWithoutEntities, err := repo.UserAssetsPage("user-1", 1, 40, UserAssetPageFilter{Status: "active"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if totalWithoutEntities != 0 || len(withoutEntities) != 0 {
+		t.Fatalf("default asset page = total %d, assets %#v; want entity excluded", totalWithoutEntities, withoutEntities)
+	}
+
+	withEntities, totalWithEntities, err := repo.UserAssetsPage("user-1", 1, 40, UserAssetPageFilter{Status: "active", IncludeEntities: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if totalWithEntities != 1 || len(withEntities) != 1 || withEntities[0].ID != asset.ID {
+		t.Fatalf("canvas asset page = total %d, assets %#v; want character entity", totalWithEntities, withEntities)
+	}
+}
+
 func TestDeleteAssetFolderMovesAssetsToUncategorized(t *testing.T) {
 	repo, db := newAssetLibraryTestRepository(t)
 	now := time.Now().UTC()

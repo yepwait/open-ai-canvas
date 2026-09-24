@@ -661,6 +661,7 @@ export function useCanvasUpload({
                 metadata: {
                     workflowKind: "character",
                     characterAssetId: payload.assetId,
+                    characterProjectId: payload.domainProjectId,
                     characterVersionId: payload.versionId,
                     characterVersionPolicy: "current",
                     characterName: payload.title,
@@ -673,6 +674,8 @@ export function useCanvasUpload({
                     characterVoiceName: payload.voiceName,
                     characterVoiceProfile: payload.voiceProfile,
                     characterVoiceInstructions: payload.voiceInstructions,
+                    characterRepresentationResources: payload.representationResources,
+                    characterVoiceSampleResourceId: payload.voiceSampleResourceId,
                     assetId: payload.assetId,
                     status: NODE_STATUS_SUCCESS,
                     fontSize: 14,

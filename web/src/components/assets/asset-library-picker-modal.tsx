@@ -49,6 +49,7 @@ export type AssetLibraryPickerFolder = {
 type Props = {
     remoteLibrary?: boolean;
     remoteKind?: string;
+    includeEntities?: boolean;
     /** 左侧「媒体类型」筛选项；只有一种类型或已由 remoteKind 固定时不展示该分组。 */
     mediaKinds?: AssetPickerMediaKind[];
     open: boolean;
@@ -87,6 +88,7 @@ type Props = {
 export function AssetLibraryPickerModal({
     remoteLibrary = false,
     remoteKind,
+    includeEntities = false,
     mediaKinds = DEFAULT_MEDIA_KINDS,
     open,
     items,
@@ -137,15 +139,18 @@ export function AssetLibraryPickerModal({
     // remoteKind 是调用方写死的能力约束；媒体类型筛选只在没有该约束时参与服务端查询。
     const remoteQueryKind = remoteKind || (mediaKind === "all" ? undefined : mediaKind);
     const remoteQuery = useQuery({
-        queryKey: ["asset-picker", userId, remotePage, remotePageSize, category, remoteKeyword, remoteQueryKind],
-        queryFn: ({ signal }) => loadAssetLibraryPage({ page: remotePage, pageSize: remotePageSize, kind: remoteQueryKind, category: category === "all" || category === "archived" || category === remoteQueryKind ? undefined : category, status: category === "archived" ? "archived" : "active", query: remoteKeyword, signal }),
+        queryKey: ["asset-picker", userId, remotePage, remotePageSize, category, remoteKeyword, remoteQueryKind, includeEntities],
+        queryFn: ({ signal }) => loadAssetLibraryPage({ page: remotePage, pageSize: remotePageSize, kind: remoteQueryKind, category: category === "all" || category === "archived" || category === remoteQueryKind ? undefined : category, status: category === "archived" ? "archived" : "active", query: remoteKeyword, includeEntities, signal }),
         enabled: remoteEnabled && open && sessionHydrated,
     });
-    const remoteItems = useMemo<AssetLibraryPickerItem[]>(() => (remoteQuery.data?.assets || []).filter((asset) => asset.kind !== "entity" && asset.kind !== "model").map((asset) => ({
+    const remoteItems = useMemo<AssetLibraryPickerItem[]>(() => (remoteQuery.data?.assets || []).filter((asset) => (includeEntities || asset.kind !== "entity") && asset.kind !== "model").map((asset) => ({
         id: asset.id, title: asset.title, category: asset.category || "other", archived: asset.status === "archived", asset,
-        kindLabel: asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : asset.kind === "audio" ? "音频" : "文本", searchText: (asset.tags ?? []).join(" "),
-        ...(items.find((item) => item.id === asset.id) || { disabledReason: "此素材不适用于当前操作" }),
-    })), [remoteQuery.data, items]);
+        kindLabel: asset.kind === "entity" ? "角色卡" : asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : asset.kind === "audio" ? "音频" : "文本",
+        imageUrl: asset.kind === "entity" ? asset.coverUrl : undefined,
+        imageFit: asset.kind === "entity" ? "contain" : undefined,
+        searchText: (asset.tags ?? []).join(" "),
+        ...(items.find((item) => item.id === asset.id) || (asset.kind === "entity" ? {} : { disabledReason: "此素材不适用于当前操作" })),
+    })), [includeEntities, remoteQuery.data, items]);
     const uploadInputRef = useRef<HTMLInputElement>(null);
     const initialSelectedIdsRef = useRef(initialSelectedIds);
     const itemsRef = useRef(items);

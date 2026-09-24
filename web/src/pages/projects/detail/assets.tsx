@@ -138,6 +138,10 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
         if (page > lastPage) setPage(lastPage);
     }, [assetsQuery.data, page, pageSize]);
     useEffect(() => {
+        const characters = (assetsQuery.data?.assets || []).filter((asset) => asset.category === "character" && asset.character);
+        characters.forEach((asset) => syncPersonalCharacterProjection(asset, detail.project.id));
+    }, [assetsQuery.data, detail.project.id]);
+    useEffect(() => {
         if (!candidatesQuery.data) return;
         const lastPage = Math.max(1, Math.ceil(candidatesQuery.data.total / candidatePageSize));
         if (candidatePage > lastPage) setCandidatePage(lastPage);
@@ -300,7 +304,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
     const confirmMutation = useMutation({
         mutationFn: ({ candidateId, targetAssetId }: { candidateId: string; targetAssetId?: string }) => confirmProjectAssetCandidate(detail.project.id, candidateId, targetAssetId),
         onSuccess: ({ asset }, variables) => {
-            if (asset.category === "character") syncPersonalCharacterProjection(asset);
+            if (asset.category === "character") syncPersonalCharacterProjection(asset, detail.project.id);
             const label = asset.category === "character" ? "角色卡" : categoryLabel(asset.category);
             // 确认会改变候选、资产列表和左侧计数三处数据，必须一并失效缓存，否则计数与列表滞后。
             void Promise.all([
@@ -317,7 +321,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
             const definition = characterDefinition(values);
             return editorAsset === "new" ? createProjectCharacter(detail.project.id, { name: values.name, definition }) : updateProjectCharacter(detail.project.id, editorAsset!.id, { name: values.name, definition });
         },
-        onSuccess: (result) => { syncPersonalCharacterProjection(result.asset); setEditorAsset(null); done(editorAsset === "new" ? "角色卡已创建" : "角色设定已保存并生成新版本"); },
+        onSuccess: (result) => { syncPersonalCharacterProjection(result.asset, detail.project.id); setEditorAsset(null); done(editorAsset === "new" ? "角色卡已创建" : "角色设定已保存并生成新版本"); },
         onError: failed("角色保存失败"),
     });
     const generateMutation = useMutation({
@@ -331,7 +335,7 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
             await generateCharacterTurnaround({ projectId: detail.project.id, assetId: asset.id, versionId: asset.character.versionId, name: asset.title, definition: asset.character.definition, projectStyle, config });
             return getProjectCharacter(detail.project.id, asset.id);
         },
-        onSuccess: (result) => { syncPersonalCharacterProjection(result.asset); done("三视图已生成并绑定到新角色版本"); },
+        onSuccess: (result) => { syncPersonalCharacterProjection(result.asset, detail.project.id); done("三视图已生成并绑定到新角色版本"); },
         onError: failed("三视图生成失败"),
     });
     const bindImagesMutation = useMutation({
@@ -346,11 +350,11 @@ export default function ProjectAssetsView({ detail, refreshProject }: ProjectDet
             if (!resourceId) throw new Error("所选图片尚未同步到后端资源库");
             return replaceProjectCharacterRepresentations(detail.project.id, imageAsset.id, [{ role: "turnaround_sheet", resourceId, metadata: { sourceAssetId: selected.id } }, { role: "primary", resourceId, metadata: { source: "turnaround_sheet", sourceAssetId: selected.id } }]);
         },
-        onSuccess: (result) => { syncPersonalCharacterProjection(result.asset); setImageAsset(null); done("三视图已绑定到新角色版本"); },
+        onSuccess: (result) => { syncPersonalCharacterProjection(result.asset, detail.project.id); setImageAsset(null); done("三视图已绑定到新角色版本"); },
         onError: failed("三视图绑定失败"),
     });
-    const bindVoiceMutation = useMutation({ mutationFn: () => voiceAsset && voiceSample ? bindProjectCharacterVoice(detail.project.id, voiceAsset.id, { sampleResourceId: voiceSample.resourceId, voiceName: voiceSample.name, instructions: voiceInstructions }) : Promise.reject(new Error("请选择一份声音素材")), onSuccess: (result) => { syncPersonalCharacterProjection(result.asset); setVoiceAsset(null); setVoiceSample(null); done("声音素材已绑定到新角色版本"); }, onError: failed("声音绑定失败") });
-    const unbindVoiceMutation = useMutation({ mutationFn: () => voiceAsset ? unbindProjectCharacterVoice(detail.project.id, voiceAsset.id) : Promise.reject(new Error("未选择角色")), onSuccess: (result) => { syncPersonalCharacterProjection(result.asset); setVoiceAsset(null); done("声音绑定已解除并生成新角色版本"); }, onError: failed("声音解绑失败") });
+    const bindVoiceMutation = useMutation({ mutationFn: () => voiceAsset && voiceSample ? bindProjectCharacterVoice(detail.project.id, voiceAsset.id, { sampleResourceId: voiceSample.resourceId, voiceName: voiceSample.name, instructions: voiceInstructions }) : Promise.reject(new Error("请选择一份声音素材")), onSuccess: (result) => { syncPersonalCharacterProjection(result.asset, detail.project.id); setVoiceAsset(null); setVoiceSample(null); done("声音素材已绑定到新角色版本"); }, onError: failed("声音绑定失败") });
+    const unbindVoiceMutation = useMutation({ mutationFn: () => voiceAsset ? unbindProjectCharacterVoice(detail.project.id, voiceAsset.id) : Promise.reject(new Error("未选择角色")), onSuccess: (result) => { syncPersonalCharacterProjection(result.asset, detail.project.id); setVoiceAsset(null); done("声音绑定已解除并生成新角色版本"); }, onError: failed("声音解绑失败") });
 
     const openCharacterEditor = (asset: ProjectAsset | "new") => {
         setEditorAsset(asset);
@@ -742,7 +746,7 @@ function characterDefinition(values: CharacterForm) {
 }
 
 function fieldValue(value: unknown) { return Array.isArray(value) ? value.join("，") : typeof value === "string" ? value : ""; }
-function syncPersonalCharacterProjection(asset: ProjectAsset) {
+function syncPersonalCharacterProjection(asset: ProjectAsset, projectId: string) {
     if (!asset.character) return;
     const current = useAssetStore.getState().assets;
     const existing = current.find((item) => item.id === asset.id);
@@ -759,7 +763,22 @@ function syncPersonalCharacterProjection(asset: ProjectAsset) {
         source: existing?.source || "project-character",
         createdAt: existing?.createdAt || asset.updatedAt,
         updatedAt: asset.updatedAt,
-        data: { definition: asset.character.definition },
+        metadata: {
+            ...(existing?.metadata || {}),
+            workflowKind: "character",
+            projectId,
+            characterVersionId: asset.character.versionId,
+            characterVisualStatus: asset.character.visualStatus,
+            characterVoiceStatus: asset.character.voiceStatus,
+            characterVoiceName: asset.character.voice?.profile.name,
+            characterVoiceSampleResourceId: asset.character.voice?.profile.sampleResourceId,
+        },
+        data: {
+            definition: asset.character.definition,
+            versionId: asset.character.versionId,
+            representations: asset.character.representations,
+            voice: asset.character.voice,
+        },
     };
     useAssetStore.getState().replaceAssets([projected, ...current.filter((item) => item.id !== asset.id)]);
 }

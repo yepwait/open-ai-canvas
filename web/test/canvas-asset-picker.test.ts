@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 
 import { assetPickerItemsToInsertPayloads } from "@/components/canvas/asset-picker-modal";
 import { pickerItemMediaKind, type AssetLibraryPickerItem } from "@/components/assets/asset-library-picker-modal";
-import type { ImageAsset, TextAsset } from "@/stores/use-asset-store";
+import type { EntityAsset, ImageAsset, TextAsset } from "@/stores/use-asset-store";
 
 const timestamp = "2026-08-28T00:00:00.000Z";
 
@@ -56,6 +56,43 @@ describe("canvas asset picker", () => {
 
     test("rejects stale selections instead of silently dropping them", () => {
         expect(() => assetPickerItemsToInsertPayloads(["missing"], [])).toThrow("所选素材已不存在");
+    });
+
+    test("maps a character entity to a text reference with its project, views, and voice", () => {
+        const character: EntityAsset = {
+            id: "character-1",
+            kind: "entity",
+            title: "扶颦",
+            category: "character",
+            coverUrl: "https://cdn.example.com/fupin-front.png",
+            tags: ["角色"],
+            primaryVersionId: "character-version-1",
+            metadata: { projectId: "drama-project-1", characterVisualStatus: "ready", characterVoiceStatus: "ready" },
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            data: {
+                definition: { appearance: "银发" },
+                versionId: "character-version-1",
+                representations: [
+                    { resourceId: "resource-front", role: "front", mediaType: "image/png" },
+                    { resourceId: "resource-side", role: "side", mediaType: "image/png" },
+                    { resourceId: "resource-back", role: "back", mediaType: "image/png" },
+                ],
+                voice: { profile: { name: "扶颦音色", provider: "local", voiceKey: "voice-1", language: "zh-CN", timbre: "清冷", sampleResourceId: "resource-voice" } },
+            },
+        };
+        const item: AssetLibraryPickerItem = { id: character.id, title: character.title, category: "character", kindLabel: "角色卡", asset: character };
+
+        expect(assetPickerItemsToInsertPayloads([character.id], [item])).toMatchObject([
+            {
+                kind: "character",
+                assetId: "character-1",
+                versionId: "character-version-1",
+                domainProjectId: "drama-project-1",
+                representationResources: character.data.representations,
+                voiceSampleResourceId: "resource-voice",
+            },
+        ]);
     });
 });
 

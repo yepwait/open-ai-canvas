@@ -21,6 +21,7 @@ export type CharacterGenerationReference = {
     nodeId: string;
     assetId: string;
     requestedVersionId?: string;
+    domainProjectId?: string;
 };
 
 export type ResolvedCharacterVoice = {
@@ -71,7 +72,7 @@ export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData
         const reason = status === "stale" ? "输入或方式已变化" : status === "processing" ? "仍在处理中" : "尚未完成本地转换";
         throw new Error(`转换节点「${pendingConversion.title || pendingConversion.id}」${reason}，完成后才能执行下游生成`);
     }
-    const connectedInputs = withArkAssetReferenceInputs(buildNodeGenerationInputs(nodeId, nodes, connections), nodes, assets);
+    const connectedInputs = enrichCharacterProjectIds(withArkAssetReferenceInputs(buildNodeGenerationInputs(nodeId, nodes, connections), nodes, assets), assets);
     const sourceNode = nodes.find((node) => node.id === nodeId);
     const portraitTextureInput = sourceNode?.type === CanvasNodeType.Image && sourceNode.metadata?.content && sourceNode.metadata?.portraitTexture
         ? (() => {
@@ -81,7 +82,7 @@ export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData
         : [];
     // 显式 @ 引用必须与提示词面板展示的资源集合一致；默认自动输入仍只取入边，
     // 避免已有图片在没有 @图片N 时被悄悄当作自身参考图。
-    const mentionInputs = withArkAssetReferenceInputs(mergeGenerationInputs(buildNodeMentionGenerationInputs(nodeId, nodes, connections), portraitTextureInput, buildAssetGenerationInputs(assets)), nodes, assets);
+    const mentionInputs = enrichCharacterProjectIds(withArkAssetReferenceInputs(mergeGenerationInputs(buildNodeMentionGenerationInputs(nodeId, nodes, connections), portraitTextureInput, buildAssetGenerationInputs(assets)), nodes, assets), assets);
     const storyboardInputs = getConnectedStoryboardRows(nodeId, nodes, connections);
     assertResolvableGenerationMentions(prompt, mentionInputs);
     const hasExplicitResourceMention = hasResolvableGenerationMention(prompt, mentionInputs);
@@ -404,6 +405,19 @@ function mergeGenerationInputs(...groups: NodeGenerationInput[][]) {
     );
 }
 
+function enrichCharacterProjectIds(inputs: NodeGenerationInput[], assets: Asset[]) {
+    const projectIdByAssetId = new Map(
+        assets
+            .filter((asset): asset is Extract<Asset, { kind: "entity" }> => asset.kind === "entity")
+            .map((asset) => [asset.id, typeof asset.metadata?.projectId === "string" ? asset.metadata.projectId : undefined]),
+    );
+    return inputs.map((input) => {
+        if (!input.character || input.character.domainProjectId) return input;
+        const domainProjectId = projectIdByAssetId.get(input.character.assetId);
+        return domainProjectId ? { ...input, character: { ...input.character, domainProjectId } } : input;
+    });
+}
+
 function buildAssetGenerationInputs(assets: Asset[]): NodeGenerationInput[] {
     return assets.flatMap((asset): NodeGenerationInput[] => {
         const nodeId = `asset:${asset.id}`;
@@ -411,7 +425,10 @@ function buildAssetGenerationInputs(assets: Asset[]): NodeGenerationInput[] {
         if (asset.kind === "image") return [{ nodeId, type: "image", title: asset.title, image: { id: asset.id, name: asset.title, type: asset.data.mimeType, dataUrl: asset.data.dataUrl, storageKey: asset.data.storageKey, bytes: asset.data.bytes, width: asset.data.width, height: asset.data.height, ...(asset.arkAssetId ? { arkAssetId: asset.arkAssetId } : {}) } }];
         if (asset.kind === "video") return [{ nodeId, type: "video", title: asset.title, previewUrl: canvasVideoAssetPreviewUrl(asset.data.url, asset.coverUrl), video: { id: asset.id, name: asset.title, type: asset.data.mimeType, url: asset.data.url, storageKey: asset.data.storageKey, bytes: asset.data.bytes, width: asset.data.width, height: asset.data.height, durationMs: asset.data.durationMs } }];
         if (asset.kind === "audio") return [{ nodeId, type: "audio", title: asset.title, audio: { id: asset.id, name: asset.title, type: asset.data.mimeType, url: asset.data.url, storageKey: asset.data.storageKey, bytes: asset.data.bytes, durationMs: asset.data.durationMs } }];
-        if (asset.kind === "entity" && asset.category === "character") return [{ nodeId, type: "character", title: asset.title, character: { nodeId, assetId: asset.id, requestedVersionId: asset.primaryVersionId } }];
+        if (asset.kind === "entity" && asset.category === "character") {
+            const domainProjectId = typeof asset.metadata?.projectId === "string" ? asset.metadata.projectId : undefined;
+            return [{ nodeId, type: "character", title: asset.title, character: { nodeId, assetId: asset.id, requestedVersionId: asset.primaryVersionId, domainProjectId } }];
+        }
         return [];
     });
 }
@@ -491,10 +508,11 @@ export async function hydrateNodeGenerationContext(context: NodeGenerationContex
         }),
     );
     if (!context.characterReferences.length) return { ...context, referenceImages };
-    if (!domainProjectId) throw new Error("角色引用未关联短剧项目，无法解析角色版本");
+    const characterProjectIds = context.characterReferences.map((reference) => reference.domainProjectId || domainProjectId);
+    if (characterProjectIds.some((value) => !value)) throw new Error("角色引用未关联短剧项目，无法解析角色版本");
     const { getProjectCharacter } = await import("@/services/api/projects");
     const { getResource, resourceFileUrl, resourceIdFromStorageKey, resourceStorageKey } = await import("@/services/api/resources");
-    const details = await Promise.all(context.characterReferences.map((reference) => getProjectCharacter(domainProjectId, reference.assetId)));
+    const details = await Promise.all(context.characterReferences.map((reference, index) => getProjectCharacter(characterProjectIds[index]!, reference.assetId)));
     const remainingBudget = Math.max(0, (referenceLimits?.maxImages ?? 9) - referenceImages.length);
     const selected = details.flatMap((detail) => {
         const representation = preferredCharacterRepresentation(detail.character.representations);
@@ -584,7 +602,14 @@ function readNodeTextInput(node: CanvasNodeData) {
 
 function readCharacterReference(node: CanvasNodeData): CharacterGenerationReference | null {
     const assetId = node.metadata?.workflowKind === "character" ? node.metadata.characterAssetId?.trim() : "";
-    return assetId ? { nodeId: node.id, assetId, requestedVersionId: node.metadata?.characterVersionPolicy === "pinned" ? node.metadata.characterVersionId : undefined } : null;
+    return assetId
+        ? {
+              nodeId: node.id,
+              assetId,
+              requestedVersionId: node.metadata?.characterVersionPolicy === "pinned" ? node.metadata.characterVersionId : undefined,
+              domainProjectId: node.metadata?.characterProjectId,
+          }
+        : null;
 }
 
 function preferredCharacterRepresentation(representations: Array<{ id: string; resourceId: string; role: string }>) {

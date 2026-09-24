@@ -101,7 +101,37 @@ export function parseAssetRecord(value: unknown): Asset {
         return { ...base, kind, data: parsed } satisfies ModelAsset;
     }
     if (kind === "entity") {
-        return { ...base, kind, data: { definition: requireRecord(data.definition, "definition") } } satisfies EntityAsset;
+        const versionId = optionalTrimmedString(data, "versionId");
+        const representations = Array.isArray(data.representations)
+            ? data.representations.filter(isRecord).flatMap((representation) => {
+                  const resourceId = optionalTrimmedString(representation, "resourceId");
+                  const role = optionalTrimmedString(representation, "role");
+                  return resourceId && role ? [{ resourceId, role, mediaType: optionalString(representation, "mediaType") }] : [];
+              })
+            : undefined;
+        const voice = isRecord(data.voice) && isRecord(data.voice.profile)
+            ? {
+                  profile: {
+                      name: requireString(data.voice.profile, "name"),
+                      provider: requireString(data.voice.profile, "provider"),
+                      voiceKey: requireString(data.voice.profile, "voiceKey"),
+                      language: requireString(data.voice.profile, "language"),
+                      timbre: requireString(data.voice.profile, "timbre"),
+                      sampleResourceId: optionalTrimmedString(data.voice.profile, "sampleResourceId"),
+                  },
+                  instructions: optionalString(data.voice, "instructions"),
+              }
+            : undefined;
+        return {
+            ...base,
+            kind,
+            data: {
+                definition: requireRecord(data.definition, "definition"),
+                ...(versionId ? { versionId } : {}),
+                ...(representations?.length ? { representations } : {}),
+                ...(voice ? { voice } : {}),
+            },
+        } satisfies EntityAsset;
     }
     throw new Error(`不支持的素材类型 ${kind}`);
 }

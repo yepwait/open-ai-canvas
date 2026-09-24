@@ -1175,6 +1175,11 @@ paths:
     get:
       tags: [assets]
       summary: 用户素材库
+      parameters:
+        - in: query
+          name: includeEntities
+          schema: { type: integer, enum: [0, 1], default: 0 }
+          description: 画布资产入口设为 1 时，同时返回角色卡实体；默认仍只返回媒体与文本素材
       responses:
         "200":
           $ref: "#/components/responses/Envelope"

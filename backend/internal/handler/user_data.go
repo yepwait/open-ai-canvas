@@ -338,7 +338,7 @@ func RegisterUserDataRoutes(r *gin.RouterGroup, svc *service.Service) {
 			}
 			assets, pageErr := svc.UserAssetsPage(user.ID, page, pageSize, service.UserAssetPageFilter{
 				Kind: c.Query("kind"), Category: c.Query("category"), FolderID: folderID,
-				Uncategorized: c.Query("uncategorized") == "1", Status: c.Query("status"), Query: c.Query("q"),
+				Uncategorized: c.Query("uncategorized") == "1", Status: c.Query("status"), Query: c.Query("q"), IncludeEntities: c.Query("includeEntities") == "1",
 			})
 			if pageErr != nil {
 				failService(c, pageErr)
@@ -665,7 +665,7 @@ func RegisterUserDataRoutes(r *gin.RouterGroup, svc *service.Service) {
 }
 
 func hasUserAssetPageFilters(c *gin.Context) bool {
-	for _, key := range []string{"pageSize", "kind", "category", "folderId", "uncategorized", "status", "q"} {
+	for _, key := range []string{"pageSize", "kind", "category", "folderId", "uncategorized", "status", "q", "includeEntities"} {
 		if _, present := c.GetQuery(key); present {
 			return true
 		}

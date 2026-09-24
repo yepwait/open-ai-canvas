@@ -23,7 +23,14 @@ export type ImageAsset = AssetBase<"image"> & { data: { dataUrl: string; storage
 export type VideoAsset = AssetBase<"video"> & { data: { url: string; storageKey?: string; width: number; height: number; durationMs?: number; hasAudio?: boolean; bytes: number; mimeType: string } };
 export type AudioAsset = AssetBase<"audio"> & { data: { url: string; storageKey?: string; durationMs?: number; bytes: number; mimeType: string } };
 export type ModelAsset = AssetBase<"model"> & { data: { url: string; storageKey?: string; bytes: number; mimeType: string; fileName: string } };
-export type EntityAsset = AssetBase<"entity"> & { data: { definition: Record<string, unknown> } };
+export type EntityAsset = AssetBase<"entity"> & {
+    data: {
+        definition: Record<string, unknown>;
+        versionId?: string;
+        representations?: Array<{ resourceId: string; mediaType?: string; role: string }>;
+        voice?: { profile: { name: string; provider: string; voiceKey: string; language: string; timbre: string; sampleResourceId?: string }; instructions?: string };
+    };
+};
 export type Asset = TextAsset | ImageAsset | VideoAsset | AudioAsset | ModelAsset | EntityAsset;
 export type NewAsset =
     | Omit<TextAsset, "id" | "createdAt" | "updatedAt">

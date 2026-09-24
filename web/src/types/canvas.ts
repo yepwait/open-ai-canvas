@@ -338,6 +338,7 @@ export type CanvasNodeMetadata = {
     characterAliases?: string[];
     characterDefinition?: Record<string, unknown>;
     characterAssetId?: string;
+    characterProjectId?: string;
     characterVersionId?: string;
     characterVersionPolicy?: "current" | "pinned";
     characterVisualStatus?: string;
@@ -350,6 +351,8 @@ export type CanvasNodeMetadata = {
         timbre: string;
     };
     characterVoiceInstructions?: string;
+    characterRepresentationResources?: Array<{ resourceId: string; role: string; mediaType?: string }>;
+    characterVoiceSampleResourceId?: string;
     characterCoverUrl?: string;
     characterView?: "front" | "side" | "back" | "multi";
     characterViewNodeIds?: {

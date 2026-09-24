@@ -1,7 +1,7 @@
 import { CollectionToolbar } from "@/components/layout/collection-toolbar";
 import { assetGridCardMinWidth, assetGridDensityOptions, parseAssetGridDensity, type AssetGridDensity } from "./asset-grid-density";
 import { DeleteButton } from "@/components/ui/base/buttons/delete-button";
-import { AlertTriangle, AudioLines, Box, CheckCheck, Clapperboard, Copy, Download, FileText, FileUp, FolderOpen, FolderPlus, Image as ImageIcon, Images, LayoutGrid, Link2, Maximize2, MoreHorizontal, PencilLine, Play, Plus, RotateCcw, Search, Trash2, Upload, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react";
+import { AlertTriangle, AudioLines, Box, CheckCheck, Clapperboard, Copy, Download, FileText, FileUp, FolderOpen, FolderPlus, Image as ImageIcon, Images, LayoutGrid, Link2, Maximize2, MoreHorizontal, PencilLine, Play, Plus, RotateCcw, Search, Trash2, Upload, UserRound, ZoomIn, ZoomOut, type LucideIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Drawer, Dropdown, Form, Input, Modal, Popconfirm, Progress, Space, Tag, Typography } from "antd";
@@ -33,7 +33,7 @@ import { AssetBatchUploadModal } from "./asset-batch-upload-modal";
 import { useAppearanceStore } from "@/stores/use-appearance-store";
 import { Select } from "@/components/ui/base/select";
 
-type LibraryAsset = Exclude<Asset, { kind: "entity" }>;
+type LibraryAsset = Asset;
 
 type AssetFormValues = {
     kind: AssetKind;
@@ -58,6 +58,7 @@ const kindOptions = [
     { label: "视频", value: "video" },
     { label: "音频", value: "audio" },
     { label: "3D 模型", value: "model" },
+    { label: "角色卡", value: "entity" },
 ];
 
 const categoryOptions = [{ label: "全部分类", value: "all" }, ...ASSET_CATEGORY_OPTIONS];
@@ -72,6 +73,7 @@ const assetKindIcons: Record<LibraryAsset["kind"], LucideIcon> = {
     video: Clapperboard,
     audio: AudioLines,
     model: Box,
+    entity: UserRound,
 };
 
 export default function AssetsPage() {
@@ -129,7 +131,7 @@ export default function AssetsPage() {
     });
     const folders = foldersQuery.data?.folders || [];
 
-    const allLibraryAssets = useMemo(() => assets.filter((asset): asset is LibraryAsset => asset.kind !== "entity"), [assets]);
+    const allLibraryAssets = useMemo(() => assets, [assets]);
     const activeAssets = useMemo(() => allLibraryAssets.filter((asset) => asset.status !== "archived"), [allLibraryAssets]);
     const trashAssets = useMemo(() => allLibraryAssets.filter((asset) => asset.status === "archived"), [allLibraryAssets]);
     const validAssets = viewMode === "trash" ? trashAssets : activeAssets;
@@ -157,6 +159,7 @@ export default function AssetsPage() {
             folderId: folderFilter !== "all" && folderFilter !== "uncategorized" ? folderFilter : undefined,
             uncategorized: folderFilter === "uncategorized",
             query: debouncedKeyword || undefined,
+            includeEntities: true,
             signal,
         }),
         enabled: Boolean(userId),
@@ -167,14 +170,12 @@ export default function AssetsPage() {
         const start = (page - 1) * pageSize;
         return filteredAssets.slice(start, start + pageSize);
     }, [filteredAssets, page, pageSize]);
-    // 远端成功且本页有可展示素材时用远端。真正的空结果保持空页。
-    // 仅在「远端空、本地仍有筛选结果」或「远端总数>0 但本页全是被排除的 entity」时回退本地。
-    const remotePageAssets = useMemo(() => (assetPageQuery.data?.assets || []).filter((asset): asset is LibraryAsset => asset.kind !== "entity"), [assetPageQuery.data?.assets]);
+    // 远端成功且本页有可展示素材时用远端；角色卡属于正式资产，不再被展示层过滤。
+    const remotePageAssets = useMemo(() => assetPageQuery.data?.assets || [], [assetPageQuery.data?.assets]);
     const remoteTotal = assetPageQuery.data?.total ?? 0;
     const remoteReady = assetPageQuery.isSuccess && assetPageQuery.data !== undefined;
     const preferLocalUnsynced = remoteReady && remoteTotal === 0 && localVisibleAssets.length > 0;
-    const remoteEntityOnlyPage = remoteReady && remotePageAssets.length === 0 && remoteTotal > 0;
-    const useRemotePage = remoteReady && !preferLocalUnsynced && !remoteEntityOnlyPage && (remotePageAssets.length > 0 || remoteTotal === 0);
+    const useRemotePage = remoteReady && !preferLocalUnsynced && (remotePageAssets.length > 0 || remoteTotal === 0);
     const visibleAssets = useMemo(() => useRemotePage ? remotePageAssets : localVisibleAssets, [useRemotePage, remotePageAssets, localVisibleAssets]);
     const visibleAssetIds = useMemo(() => visibleAssets.map((asset) => asset.id), [visibleAssets]);
     const allFilteredSelected = visibleAssetIds.length > 0 && visibleAssetIds.every((id) => selectedIds.includes(id));
@@ -1117,7 +1118,7 @@ function AssetCard({
 }
 
 function isKnownAssetKind(kind: unknown): kind is AssetKind {
-    return kind === "image" || kind === "video" || kind === "audio" || kind === "model" || kind === "text";
+    return kind === "image" || kind === "video" || kind === "audio" || kind === "model" || kind === "entity" || kind === "text";
 }
 
 function AssetCover({ asset, selected, isTrash = false, onSelect, onOpen, menuItems }: { asset: LibraryAsset; selected: boolean; isTrash?: boolean; onSelect: (selected: boolean) => void; onOpen: () => void; menuItems: MenuProps["items"] }) {
@@ -1125,7 +1126,7 @@ function AssetCover({ asset, selected, isTrash = false, onSelect, onOpen, menuIt
     const KindIcon = kind ? assetKindIcons[kind] : FileText;
     const clock = asset.kind === "video" || asset.kind === "audio" ? formatAssetClock(asset.data.durationMs) : null;
     const showPlay = asset.kind === "video";
-    const isLight = asset.kind === "audio" || asset.kind === "text" || asset.kind === "model";
+    const isLight = asset.kind === "audio" || asset.kind === "text" || asset.kind === "model" || asset.kind === "entity";
     return (
         <AssetLibraryCardMedia className={isLight ? "assets-cover is-light" : "assets-cover"}>
             <button type="button" className="assets-cover-link" onClick={onOpen} aria-label={`查看素材：${asset.title}`}>
@@ -1135,6 +1136,8 @@ function AssetCover({ asset, selected, isTrash = false, onSelect, onOpen, menuIt
                     <TextCover asset={asset} />
                 ) : asset.kind === "model" ? (
                     <ModelCover asset={asset} />
+                ) : asset.kind === "entity" ? (
+                    <EntityCover asset={asset} />
                 ) : (
                     <AssetMediaPreview
                         asset={asset}
@@ -1198,6 +1201,16 @@ function ModelCover({ asset }: { asset: LibraryAsset & { kind: "model" } }) {
         <div className="assets-cover-model">
             <Box />
             <span>{asset.data.fileName}</span>
+        </div>
+    );
+}
+
+function EntityCover({ asset }: { asset: LibraryAsset & { kind: "entity" } }) {
+    return asset.coverUrl ? (
+        <img src={asset.coverUrl} alt={asset.title} loading="lazy" decoding="async" className="assets-cover-media object-contain" />
+    ) : (
+        <div className="assets-cover-fallback">
+            <UserRound className="size-7" />
         </div>
     );
 }
@@ -1365,6 +1378,8 @@ function AssetDrawer({ asset, onClose, onCopy, onDownload }: { asset: LibraryAss
                     <div className="asset-archive-preview">
                         {asset.kind === "text" ? (
                             <div className="asset-archive-preview-note">{asset.data.content}</div>
+                        ) : asset.kind === "entity" ? (
+                            <EntityArchivePreview asset={asset} />
                         ) : asset.kind === "audio" ? (
                             <div className="asset-archive-audio">
                                 <audio src={asset.data.url} controls />
@@ -1452,6 +1467,18 @@ function AssetImageZoom({ asset }: { asset: LibraryAsset & { kind: "image" } }) 
     );
 }
 
+function EntityArchivePreview({ asset }: { asset: LibraryAsset & { kind: "entity" } }) {
+    const representationCount = asset.data.representations?.length || 0;
+    const hasVoice = Boolean(asset.data.voice || asset.metadata?.characterVoiceSampleResourceId || asset.metadata?.characterVoiceStatus === "ready");
+    return (
+        <div className="asset-archive-preview-note space-y-2">
+            {asset.coverUrl ? <img src={asset.coverUrl} alt={asset.title} className="mx-auto max-h-64 max-w-full rounded-md object-contain" /> : <UserRound className="mx-auto size-10" />}
+            <div>角色视觉资产：{representationCount ? `${representationCount} 张已绑定` : "未绑定"}</div>
+            <div>声音资产：{hasVoice ? "已绑定" : "未绑定"}</div>
+        </div>
+    );
+}
+
 function assetArchiveFacts(asset: LibraryAsset) {
     const facts: Array<{ label: string; value: string }> = [
         { label: "类型", value: assetKindLabel(asset.kind) },
@@ -1463,7 +1490,10 @@ function assetArchiveFacts(asset: LibraryAsset) {
     if (asset.kind === "video" || asset.kind === "audio") {
         facts.push({ label: "时长", value: formatAssetClock(asset.data.durationMs) || "未知" });
     }
-    if (asset.kind !== "text") {
+    if (asset.kind === "entity") {
+        facts.push({ label: "三视图", value: `${asset.data.representations?.length || 0} 张已绑定` });
+        facts.push({ label: "声音", value: asset.data.voice || asset.metadata?.characterVoiceSampleResourceId || asset.metadata?.characterVoiceStatus === "ready" ? "已绑定" : "未绑定" });
+    } else if (asset.kind !== "text") {
         facts.push({ label: "大小", value: formatBytes(asset.data.bytes) });
         facts.push({ label: "格式", value: asset.data.mimeType });
         facts.push({ label: "存储", value: resourceStorageLabel(asset.data.storageKey) });
@@ -1476,6 +1506,7 @@ function assetArchiveFacts(asset: LibraryAsset) {
 
 function assetSummary(asset: LibraryAsset) {
     if (asset.kind === "text") return asset.data.content;
+    if (asset.kind === "entity") return `${asset.data.representations?.length || 0} 张三视图 · ${asset.data.voice || asset.metadata?.characterVoiceSampleResourceId || asset.metadata?.characterVoiceStatus === "ready" ? "声音已绑定" : "声音未绑定"}`;
     if (asset.kind === "audio") return `${formatAssetDuration(asset.data.durationMs)} · ${formatBytes(asset.data.bytes)} · ${asset.data.mimeType}`;
     if (asset.kind === "model") return `${asset.data.fileName} · ${formatBytes(asset.data.bytes)} · ${asset.data.mimeType}`;
     return `${assetSizeLabel(asset.data.width, asset.data.height)} · ${formatBytes(asset.data.bytes)} · ${asset.data.mimeType}`;
@@ -1497,7 +1528,12 @@ function StorageTag({ asset }: { asset: LibraryAsset }) {
 }
 
 function assetSearchText(asset: LibraryAsset) {
-    return [asset.title, asset.source || "", asset.note || "", assetCategoryLabel(asset.category), (asset.tags || []).join(" "), asset.kind === "text" ? asset.data.content : asset.data.mimeType].join(" ").toLowerCase();
+    const content = asset.kind === "text"
+        ? asset.data.content
+        : asset.kind === "entity"
+          ? [JSON.stringify(asset.data.definition), asset.data.representations?.map((item) => item.role).join(" "), asset.data.voice?.profile.name, asset.metadata?.characterVoiceName].filter(Boolean).join(" ")
+          : asset.data.mimeType;
+    return [asset.title, asset.source || "", asset.note || "", assetCategoryLabel(asset.category), (asset.tags || []).join(" "), content].join(" ").toLowerCase();
 }
 
 function assetProjectLabel(asset: LibraryAsset) {
@@ -1507,7 +1543,7 @@ function assetProjectLabel(asset: LibraryAsset) {
 }
 
 function assetKindLabel(kind: AssetKind) {
-    return kind === "image" ? "图片" : kind === "video" ? "视频" : kind === "audio" ? "音频" : kind === "model" ? "3D 模型" : "文本";
+    return kind === "image" ? "图片" : kind === "video" ? "视频" : kind === "audio" ? "音频" : kind === "model" ? "3D 模型" : kind === "entity" ? "角色卡" : "文本";
 }
 
 function assetDownloadLabel(asset: LibraryAsset) {
@@ -1525,8 +1561,6 @@ function readAssetGridDensity(): AssetGridDensity {
 function assetCountMap<T extends { label: string; value: string }>(options: T[], remote: Record<string, number> | undefined, fallback: LibraryAsset[], valueOf: (asset: LibraryAsset) => string) {
     const result = new Map<string, number>();
     options.forEach((option) => {
-        // 列表只展示 LibraryAsset（entity 角色卡被排除）；"全部"计数只能累加选项里声明的类型，
-        // 否则远端 facets 里的 entity 会计入"全部"，出现计数 30 但列表为空的矛盾。
         if (remote) result.set(option.value, option.value === "all" ? options.reduce((sum, item) => item.value === "all" ? sum : sum + (remote[item.value] || 0), 0) : remote[option.value] || 0);
         else result.set(option.value, option.value === "all" ? fallback.length : fallback.filter((asset) => valueOf(asset) === option.value).length);
     });

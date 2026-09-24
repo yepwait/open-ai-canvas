@@ -57,7 +57,7 @@ export function listRemoteAssets() {
     return http.get<{ assets: RemoteUserDataSummary[] }>("/assets");
 }
 
-export function listRemoteAssetsPage(options: { page: number; pageSize: number; kind?: string; category?: string; folderId?: string; uncategorized?: boolean; status?: string; query?: string; signal?: AbortSignal }) {
+export function listRemoteAssetsPage(options: { page: number; pageSize: number; kind?: string; category?: string; folderId?: string; uncategorized?: boolean; status?: string; query?: string; includeEntities?: boolean; signal?: AbortSignal }) {
     return http.get<RemoteAssetPage>("/assets", {
         signal: options.signal,
         params: compactApiParams({
@@ -69,6 +69,7 @@ export function listRemoteAssetsPage(options: { page: number; pageSize: number; 
             uncategorized: options.uncategorized ? 1 : undefined,
             status: options.status,
             q: options.query,
+            includeEntities: options.includeEntities ? 1 : undefined,
         }),
     });
 }

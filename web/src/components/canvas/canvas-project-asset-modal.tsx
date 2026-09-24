@@ -2,7 +2,7 @@ import { useMemo } from "react";
 
 import { AssetLibraryPickerModal, type AssetLibraryPickerItem, type AssetPickerMediaKind } from "@/components/assets/asset-library-picker-modal";
 import { useExternalAssetSources } from "@/hooks/use-external-asset-sources";
-import { externalAssetToInsertPayload, type InsertAssetPayload } from "@/components/canvas/asset-picker-modal";
+import { externalAssetToInsertPayload, localAssetToInsertPayload, type InsertAssetPayload } from "@/components/canvas/asset-picker-modal";
 import { compileCharacterReferencePrompt } from "@/lib/canvas/canvas-character-reference";
 import { ASSET_CATEGORY_LABELS, normalizeAssetCategory } from "@/lib/asset-category";
 import { resourceFileUrl, resourceIdFromStorageKey } from "@/services/api/resources";
@@ -11,7 +11,7 @@ import { getRemoteAsset } from "@/services/api/user-data";
 import { useAssetStore, type Asset } from "@/stores/use-asset-store";
 
 const categoryLabels: Record<string, string> = { all: "全部资产", ...ASSET_CATEGORY_LABELS };
-type ProjectPickerItem = { id: string; category: string; folderId?: string; project?: ProjectAsset; character?: ProjectAsset; media?: Asset };
+type ProjectPickerItem = { id: string; category: string; folderId?: string; projectId?: string; project?: ProjectAsset; character?: ProjectAsset; media?: Asset };
 
 export function CanvasProjectAssetModal({
     open,
@@ -34,15 +34,16 @@ export function CanvasProjectAssetModal({
     const externalAssetSources = useExternalAssetSources(open);
     const items = useMemo<ProjectPickerItem[]>(() => {
         const mediaById = new Map(mediaAssets.map((asset) => [asset.id, asset]));
+        const domainProjectId = detail?.project.id;
         const projectItems = (detail?.assets || []).flatMap((asset): ProjectPickerItem[] => {
-            if (asset.category === "character" && asset.character) return [{ id: asset.id, category: "character", folderId: asset.folderId, project: asset, character: asset }];
+            if (asset.category === "character" && asset.character) return [{ id: asset.id, category: "character", folderId: asset.folderId, projectId: domainProjectId, project: asset, character: asset }];
             const media = mediaById.get(asset.id);
             if (media?.status === "archived") return [];
-            return asset.mediaType === "model" || asset.mediaType === "entity" ? [] : [{ id: asset.id, category: normalizeAssetCategory(asset.category || media?.category), folderId: asset.folderId, project: asset, media }];
+            return asset.mediaType === "model" || asset.mediaType === "entity" ? [] : [{ id: asset.id, category: normalizeAssetCategory(asset.category || media?.category), folderId: asset.folderId, projectId: domainProjectId, project: asset, media }];
         });
         if (detail) return projectItems;
         // 自由画布未关联项目时回退到个人素材库。
-        return mediaAssets.filter((asset) => asset.kind !== "model" && asset.kind !== "entity" && asset.status !== "archived").map((media): ProjectPickerItem => ({ id: media.id, category: normalizeAssetCategory(media.category), media }));
+        return mediaAssets.filter((asset) => asset.kind !== "model" && asset.status !== "archived").map((media): ProjectPickerItem => ({ id: media.id, category: normalizeAssetCategory(media.category), media }));
     }, [detail?.assets, mediaAssets]);
     const localPickerItems = useMemo<AssetLibraryPickerItem[]>(
         () =>
@@ -79,6 +80,7 @@ export function CanvasProjectAssetModal({
     return (
         <AssetLibraryPickerModal
             remoteLibrary={!detail}
+            includeEntities={!detail}
             open={open}
             mediaKinds={["image", "video", "audio", "text"]}
             items={pickerItems}
@@ -127,7 +129,7 @@ function pickerMediaKind(value?: string): AssetPickerMediaKind {
 
 function toInsertPayload(item: ProjectPickerItem): InsertAssetPayload {
     if (item.character?.character) {
-        return projectCharacterToInsertPayload(item.character);
+        return projectCharacterToInsertPayload(item.character, item.projectId);
     }
     const asset = item.media;
     const project = item.project;
@@ -141,6 +143,7 @@ function toInsertPayload(item: ProjectPickerItem): InsertAssetPayload {
         throw new Error(`“${project.title}”缺少可读取的内容`);
     }
     if (!asset) throw new Error("项目资产不可用");
+    if (asset.kind === "entity") return localAssetToInsertPayload(asset);
     if (asset.kind === "text") return { kind: "text", content: asset.data.content, title: asset.title, assetId: asset.id };
     if (asset.kind === "video")
         return {
@@ -175,7 +178,7 @@ function projectAssetMediaUrl(storageKey?: string, fallback = "") {
     return resourceId ? resourceFileUrl(resourceId) : fallback;
 }
 
-export function projectCharacterToInsertPayload(asset: ProjectAsset): InsertAssetPayload {
+export function projectCharacterToInsertPayload(asset: ProjectAsset, domainProjectId?: string): InsertAssetPayload {
     if (!asset.character) throw new Error("项目角色信息不完整");
     const card = asset.character;
     const definition = card.definition;
@@ -204,5 +207,8 @@ export function projectCharacterToInsertPayload(asset: ProjectAsset): InsertAsse
               }
             : undefined,
         voiceInstructions: card.voice?.instructions,
+        representationResources: card.representations,
+        voiceSampleResourceId: card.voice?.profile.sampleResourceId,
+        domainProjectId,
     };
 }

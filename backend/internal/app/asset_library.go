@@ -25,12 +25,13 @@ type UserAssetPage struct {
 }
 
 type UserAssetPageFilter struct {
-	Kind          string
-	Category      string
-	FolderID      *string
-	Uncategorized bool
-	Status        string
-	Query         string
+	Kind            string
+	Category        string
+	FolderID        *string
+	Uncategorized   bool
+	Status          string
+	Query           string
+	IncludeEntities bool
 }
 
 type CreateAssetFolderRequest struct {
@@ -50,7 +51,7 @@ func (s *Service) UserAssetsPage(userID string, page int, pageSize int, filter U
 	page, pageSize = normalizeProjectPage(page, pageSize, 120)
 	repoFilter := repository.UserAssetPageFilter{
 		Kind: filter.Kind, Category: filter.Category, FolderID: filter.FolderID,
-		Uncategorized: filter.Uncategorized, Status: filter.Status, Query: filter.Query,
+		Uncategorized: filter.Uncategorized, Status: filter.Status, Query: filter.Query, IncludeEntities: filter.IncludeEntities,
 	}
 	assets, total, err := s.repo.UserAssetsPage(userID, page, pageSize, repoFilter)
 	if err != nil {
@@ -62,7 +63,7 @@ func (s *Service) UserAssetsPage(userID string, page int, pageSize int, filter U
 			rawAssets = append(rawAssets, payload)
 		}
 	}
-	kindRows, categoryRows, folderRows, err := s.repo.UserAssetFacets(userID, filter.Status)
+	kindRows, categoryRows, folderRows, err := s.repo.UserAssetFacets(userID, filter.Status, filter.IncludeEntities)
 	if err != nil {
 		return UserAssetPage{}, err
 	}
